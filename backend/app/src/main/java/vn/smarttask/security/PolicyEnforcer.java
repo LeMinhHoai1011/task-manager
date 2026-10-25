@@ -1,0 +1,202 @@
+package vn.smarttask.security;
+
+import java.util.HashSet;
+import java.util.Set;
+import java.util.UUID;
+import org.springframework.stereotype.Service;
+import vn.smarttask.common.AppException;
+import vn.smarttask.common.service.AuditService;
+import vn.smarttask.project.repo.ProjectMembershipRepository;
+import vn.smarttask.project.repo.ProjectRepository;
+import vn.smarttask.task.repo.TaskAssignmentRepository;
+import vn.smarttask.task.repo.TaskRepository;
+import vn.smarttask.workspace.repo.WorkspaceMembershipRepository;
+import vn.smarttask.workspace.repo.WorkspaceRepository;
+
+/**
+ * F0 controller-entry authorization. Builds participation + state from the
+ * real repositories and funnels every check through
+ * {@link AuthorizationPolicy#decide} / {@link AuthorizationPolicy#decideWithState}.
+ *
+ * <p>Mapping (anti-oracle rule): missing READ on a resource the actor must not
+ * know exists -&gt; 404 RESOURCE_NOT_FOUND (+ {@code DENIED_NOT_FOUND} audit);
+ * write denied on a visible resource -&gt; 403 FORBIDDEN
+ * (+ {@code DENIED_FORBIDDEN} audit). Business services are untouched; they
+ * remain the second line of defence.
+ */
+@Service
+public class PolicyEnforcer {
+
+  private final AuthorizationPolicy policy;
+  private final WorkspaceRepository workspaces;
+  private final WorkspaceMembershipRepository wsMembers;
+  private final ProjectRepository projects;
+  private final ProjectMembershipRepository projectMembers;
+  private final TaskRepository tasks;
+  private final TaskAssignmentRepository assignments;
+  private final AuditService audit;
+
+  public PolicyEnforcer(AuthorizationPolicy policy, WorkspaceRepository workspaces,
+      WorkspaceMembershipRepository wsMembers, ProjectRepository projects,
+      ProjectMembershipRepository projectMembers, TaskRepository tasks,
+      TaskAssignmentRepository assignments, AuditService audit) {
+    this.policy = policy;
+    this.workspaces = workspaces;
+    this.wsMembers = wsMembers;
+    this.projects = projects;
+    this.projectMembers = projectMembers;
+    this.tasks = tasks;
+    this.assignments = assignments;
+    this.audit = audit;
+  }
+
+  // ---------------------------------------------------------------- workspace
+
+  public void requireWorkspaceRead(UUID actor, UUID workspaceId) {
+    var ws = workspaces.findById(workspaceId)
+        .orElseThrow(() -> AppException.notFound("Workspace not found"));
+    // DELETED hides existence entirely (matrix: deny all incl. read, except
+    // restore paths — none exist at entry level).
+    if ("DELETED".equals(ws.getStatus())) {
+      audit.appendDenied(actor, "workspace.read", "workspace", workspaceId, "DENIED_NOT_FOUND");
+      throw AppException.notFound("Workspace not found");
+    }
+    boolean participates = wsMembers.findMembership(workspaceId, actor).isPresent();
+    decide(actor, workspaceId, "workspace", "workspace.read", "workspace:read",
+        participates, participates, participates,
+        new AuthorizationPolicy.EffectiveState(ws.getStatus(), null));
+  }
+
+  public void requireWorkspaceWrite(UUID actor, UUID workspaceId) {
+    var ws = workspaces.findById(workspaceId)
+        .orElseThrow(() -> AppException.notFound("Workspace not found"));
+    if ("DELETED".equals(ws.getStatus())) {
+      audit.appendDenied(actor, "workspace.write", "workspace", workspaceId, "DENIED_NOT_FOUND");
+      throw AppException.notFound("Workspace not found");
+    }
+    var m = wsMembers.findMembership(workspaceId, actor);
+    boolean hasRead = m.isPresent();
+    boolean canWrite = m.map(x -> isWorkspaceWriter(x.getRole())).orElse(false);
+    decide(actor, workspaceId, "workspace", "workspace.write", "workspace:write",
+        hasRead, canWrite, canWrite,
+        new AuthorizationPolicy.EffectiveState(ws.getStatus(), null));
+  }
+
+  // ---------------------------------------------------------------- project
+
+  public void requireProjectRead(UUID actor, UUID projectId) {
+    var p = projects.findById(projectId)
+        .orElseThrow(() -> AppException.notFound("Project not found"));
+    if ("DELETED".equals(p.getStatus())) {
+      audit.appendDenied(actor, "project.read", "project", projectId, "DENIED_NOT_FOUND");
+      throw AppException.notFound("Project not found");
+    }
+    boolean participates = projectMembers.findMembership(projectId, actor).isPresent();
+    decide(actor, projectId, "project", "project.read", "project:read",
+        participates, participates, participates, stateOf(p));
+  }
+
+  public void requireProjectWrite(UUID actor, UUID projectId) {
+    var p = projects.findById(projectId)
+        .orElseThrow(() -> AppException.notFound("Project not found"));
+    if ("DELETED".equals(p.getStatus())) {
+      audit.appendDenied(actor, "project.write", "project", projectId, "DENIED_NOT_FOUND");
+      throw AppException.notFound("Project not found");
+    }
+    var m = projectMembers.findMembership(projectId, actor);
+    boolean hasRead = m.isPresent();
+    boolean canWrite = m.map(x -> isProjectWriter(x.getRole())).orElse(false);
+    decide(actor, projectId, "project", "project.write", "project:write",
+        hasRead, canWrite, canWrite, stateOf(p));
+  }
+
+  // ---------------------------------------------------------------- task
+
+  public void requireTaskRead(UUID actor, UUID taskId) {
+    var t = tasks.findById(taskId)
+        .orElseThrow(() -> AppException.notFound("Task not found"));
+    var scope = taskScope(actor, t.getProjectId(), taskId);
+    decide(actor, taskId, "task", "task.read", "task:read",
+        scope.hasRead(), scope.hasRead(), scope.hasRead(), scope.state());
+  }
+
+  public void requireTaskWrite(UUID actor, UUID taskId) {
+    requireTaskWrite(actor, taskId, "task.write", "task:write");
+  }
+
+  /** Write-like verbs (workflow transitions, approvals) share task write scope. */
+  public void requireTaskWrite(UUID actor, UUID taskId, String action, String permission) {
+    var t = tasks.findById(taskId)
+        .orElseThrow(() -> AppException.notFound("Task not found"));
+    var scope = taskScope(actor, t.getProjectId(), taskId);
+    decide(actor, taskId, "task", action, permission,
+        scope.hasRead(), scope.canWrite(), scope.canWrite(), scope.state());
+  }
+
+  // ---------------------------------------------------------------- internals
+
+  private record Scope(boolean hasRead, boolean canWrite,
+      AuthorizationPolicy.EffectiveState state) {}
+
+  private Scope taskScope(UUID actor, UUID projectId, UUID taskId) {
+    var p = projects.findById(projectId)
+        .orElseThrow(() -> AppException.notFound("Task not found"));
+    if ("DELETED".equals(p.getStatus())) {
+      audit.appendDenied(actor, "task.scope", "task", taskId, "DENIED_NOT_FOUND");
+      throw AppException.notFound("Task not found");
+    }
+    var m = projectMembers.findMembership(projectId, actor);
+    boolean assigned = assignments.findByTaskIdAndUserId(taskId, actor).isPresent();
+    boolean hasRead = m.isPresent() || assigned;
+    boolean canWrite = m.map(x -> isProjectWriter(x.getRole())).orElse(false) || assigned;
+    return new Scope(hasRead, canWrite, stateOf(p));
+  }
+
+  private AuthorizationPolicy.EffectiveState stateOf(vn.smarttask.project.entity.Project p) {
+    String wsStatus = workspaces.findById(p.getWorkspaceId())
+        .map(w -> w.getStatus()).orElse(null);
+    return new AuthorizationPolicy.EffectiveState(wsStatus, p.getStatus());
+  }
+
+  private void decide(UUID actor, UUID resourceId, String entityType, String action,
+      String permission, boolean hasRead, boolean participates, boolean writeFlag,
+      AuthorizationPolicy.EffectiveState state) {
+    var authActor = new AuthorizationPolicy.Actor(actor, true, false);
+    var resource = new AuthorizationPolicy.Resource(resourceId, true, participates, hasRead);
+    // Reads ignore the P7 state guard (mutations only); writes enforce it.
+    // Note: AuthorizationPolicy keys its write check off the ":write" suffix,
+    // so non-suffixed verbs (e.g. "task:approve") are normalised to write-like.
+    String writePerm = permission.endsWith(":write") ? permission : (permission + ":write");
+    AuthorizationPolicy.Decision d = permission.endsWith(":read")
+        ? policy.decide(authActor, resource, permission)
+        : policy.decideWithState(authActor, resource, writePerm, state, action);
+    if (d == AuthorizationPolicy.Decision.ALLOW) {
+      return;
+    }
+    if (d == AuthorizationPolicy.Decision.NOT_FOUND) {
+      audit.appendDenied(actor, action, entityType, resourceId, "DENIED_NOT_FOUND");
+      throw AppException.notFound("Resource not found");
+    }
+    audit.appendDenied(actor, action, entityType, resourceId, "DENIED_FORBIDDEN");
+    throw AppException.forbidden("Forbidden");
+  }
+
+  private static boolean isWorkspaceWriter(String role) {
+    return "OWNER".equals(role) || "ADMIN".equals(role) || "MEMBER".equals(role);
+  }
+
+  private static boolean isProjectWriter(String role) {
+    return "OWNER".equals(role) || "ADMIN".equals(role) || "MANAGER".equals(role)
+        || "MEMBER".equals(role);
+  }
+
+  /** Participation helper for tests/consumers: project member ids + assignees. */
+  public Set<UUID> participantIds(UUID projectId, UUID taskId) {
+    Set<UUID> ids = new HashSet<>();
+    projectMembers.findByProjectId(projectId).forEach(m -> ids.add(m.getUserId()));
+    if (taskId != null) {
+      assignments.findByTaskId(taskId).forEach(a -> ids.add(a.getUserId()));
+    }
+    return ids;
+  }
+}

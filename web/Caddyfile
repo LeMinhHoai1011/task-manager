@@ -1,0 +1,54 @@
+# SmartTask production edge: static SPA + /api reverse proxy + SSE.
+# DOMAIN=example.com -> automatic HTTPS (Let's Encrypt).
+# DOMAIN=:80        -> HTTP only (local smoke test / behind another LB).
+{$DOMAIN:localhost} {
+	root * /srv
+
+	# API and SSE. Buffering must stay off or realtime events arrive in bursts.
+	@api path /api/*
+	handle @api {
+		request_body {
+			max_size 64MB
+		}
+		reverse_proxy backend:8080 {
+			flush_interval -1
+			# Do not trust a client-supplied X-Forwarded-For; overwrite it so
+			# the backend rate limiter keys on the real peer address.
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+			header_up X-Forwarded-Host {host}
+			header_up X-Accel-Buffering no
+		}
+	}
+
+	# Only the liveness/readiness probe is public; keep other actuator
+	# endpoints off the Internet entirely (and do not let the SPA fallback
+	# answer them with index.html).
+	handle /actuator/health {
+		reverse_proxy backend:8080
+	}
+	handle /actuator/* {
+		respond 404
+	}
+
+	# SPA fallback + compression for static files only.
+	handle {
+		encode zstd gzip
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		Content-Security-Policy "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; font-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+		-Server
+	}
+
+	header /assets/* Cache-Control "public, max-age=31536000, immutable"
+	header /index.html Cache-Control "no-cache"
+}

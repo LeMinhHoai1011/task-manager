@@ -1,0 +1,7 @@
+.git
+.idea
+.vscode
+*.iml
+*.log
+**/target/*
+!app/target/smart-task-app-0.0.1-SNAPSHOT.jar

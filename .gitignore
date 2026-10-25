@@ -1,0 +1,31 @@
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# React / Node
+node_modules/
+dist/
+build/
+
+# Java / Spring Boot
+target/
+.gradle/
+*.class
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Logs
+*.log
+logs/
+
+# Database / uploads
+*.sql
+*.dump
+uploads/
+backups/

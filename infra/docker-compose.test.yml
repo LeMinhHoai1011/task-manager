@@ -1,0 +1,53 @@
+# SmartTask — test stack. Giong dev nhung doi port de tranh dung do
+# khi chay song song (DB 5433, MinIO 9002/9003, MailHog 1026/8026).
+# KHONG co ollama.
+name: smarttask-test
+
+services:
+  postgres:
+    image: postgres:16
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: smarttask_test
+      POSTGRES_USER: stm_test
+      POSTGRES_PASSWORD: stm_test_pw
+    volumes:
+      - pgdata_test:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stm_test -d smarttask_test"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9003"
+    ports:
+      - "9002:9000"
+      - "9003:9003"
+    environment:
+      MINIO_ROOT_USER: stm_minio
+      MINIO_ROOT_PASSWORD: stm_minio_pw_123
+    volumes:
+      - miniodata_test:/data
+    # F2.3 note: intentionally NO healthcheck here. The stock minio/minio
+    # image ships neither `mc` nor curl/wget, so an `mc`-based (or
+    # curl-based) CMD-SHELL healthcheck would fail forever. A TCP probe
+    # would only prove the port is open, not S3 readiness, so it was left
+    # out rather than added unverified. Environment substitution used for
+    # F2.3 live verification: S3Mock (S3 API) at http://localhost:9090,
+    # region us-east-1, bucket smarttask-test, path-style, test/test —
+    # the MinIO Java client speaks plain S3, so the code path is identical.
+    # (Dev compose and all volumes untouched.)
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    ports:
+      - "1026:1025"
+      - "8026:8025"
+
+volumes:
+  pgdata_test:
+  miniodata_test:

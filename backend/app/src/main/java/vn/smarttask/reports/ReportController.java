@@ -1,0 +1,157 @@
+package vn.smarttask.reports;
+
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import vn.smarttask.common.ApiResult;
+import vn.smarttask.common.AppException;
+import vn.smarttask.files.service.FileContentService;
+import vn.smarttask.reports.service.ExportWorker;
+import vn.smarttask.reports.service.ReportService;
+import vn.smarttask.security.CurrentActor;
+import vn.smarttask.security.PolicyEnforcer;
+import vn.smarttask.security.RequiresPermission;
+
+@RestController
+@RequestMapping("/api/v1")
+public class ReportController {
+
+  private final ReportService reports;
+  private final PolicyEnforcer policy;
+  private final vn.smarttask.reports.repo.ReportExportJobRepository exports;
+  private volatile FileContentService content;
+
+  public ReportController(ReportService reports, PolicyEnforcer policy,
+      vn.smarttask.reports.repo.ReportExportJobRepository exports) {
+    this.reports = reports;
+    this.policy = policy;
+    this.exports = exports;
+  }
+
+  @Autowired(required = false)
+  public void setContent(FileContentService content) {
+    this.content = content;
+  }
+
+  private static void requireIdem(String k) {
+    if (k == null || k.isBlank()) throw AppException.badRequest("IDEMPOTENCY_KEY_REQUIRED", "Idempotency-Key required");
+  }
+
+  @GetMapping("/reports/dashboard")
+  @RequiresPermission("report:read")
+  public ResponseEntity<ApiResult<Object>> dashboard(
+      @RequestParam(required = false) UUID projectId) {
+    UUID actor = CurrentActor.userId();
+    if (projectId != null) {
+      policy.requireProjectRead(actor, projectId);
+      return ResponseEntity.ok(ApiResult.ok(
+          (Object) reports.projectDashboard(actor, projectId), "report.dashboard.success"));
+    }
+    return ResponseEntity.ok(ApiResult.ok(
+        (Object) reports.personalDashboard(actor), "report.dashboard.success"));
+  }
+
+  /**
+   * F1: real read — requester's own export jobs (newest first). There is no
+   * worker relay yet, so jobs stay QUEUED until F3 and download answers
+   * 409 EXPORT_NOT_READY; nothing is echoed.
+   */
+  @GetMapping("/reports/export")
+  @RequiresPermission("report:read")
+  public ResponseEntity<ApiResult<Object>> export(
+      @RequestParam(required = false) UUID projectId,
+      @RequestParam(defaultValue = "csv") String format) {
+    UUID actor = CurrentActor.userId();
+    if (projectId != null) {
+      policy.requireProjectRead(actor, projectId);
+    }
+    // F2.5: requester-scoped ordered read (V6 ix_export_user covers it).
+    var items = exports.findByRequestedByOrderByCreatedAtDesc(actor).stream()
+        .filter(j -> projectId == null || projectId.equals(j.getScopeId()))
+        .map(j -> (Object) Map.of("export_job_id", j.getId().toString(),
+            "report_code", j.getReportCode() == null ? "" : j.getReportCode(),
+            "format", j.getFormat() == null ? "" : j.getFormat(),
+            "status", j.getStatus()))
+        .toList();
+    return ResponseEntity.ok(ApiResult.ok(Map.of("format", format, "items", items),
+        "report.export.success"));
+  }
+
+  @PostMapping("/reports/export-jobs")
+  @RequiresPermission("report:read")
+  public ResponseEntity<ApiResult<Object>> requestExport(@RequestBody Map<String, Object> body,
+      @RequestHeader(value = "Idempotency-Key", required = false) String idem) {
+    requireIdem(idem);
+    UUID actor = CurrentActor.userId();
+    if ("PROJECT".equals(String.valueOf(body.getOrDefault("scope_type", "PROJECT")))
+        && body.get("scope_id") != null) {
+      policy.requireProjectRead(actor, UUID.fromString((String) body.get("scope_id")));
+    }
+    if (body.get("report_code") != null
+        && MetricDictionary.isBanned((String) body.get("report_code"))) {
+      throw AppException.forbidden("Individual ranking exports are forbidden (R-07)");
+    }
+    var job = reports.requestExport(actor, (String) body.get("report_code"),
+        (String) body.getOrDefault("scope_type", "PROJECT"),
+        body.get("scope_id") == null ? null : UUID.fromString((String) body.get("scope_id")),
+        body.get("period_from") == null ? LocalDate.now().minusDays(30)
+            : LocalDate.parse((String) body.get("period_from")),
+        body.get("period_to") == null ? LocalDate.now() : LocalDate.parse((String) body.get("period_to")),
+        ((String) body.getOrDefault("format", "CSV")).toUpperCase(), idem);
+    return ResponseEntity.ok(ApiResult.ok(
+        Map.of("export_job_id", job.getId().toString(), "status", job.getStatus()),
+        "report.export.request.success"));
+  }
+
+  /**
+   * F3: streams the generated bytes from private storage (requester-only,
+   * TTL + permission rechecked inside fetchForDownload). No public URL ever.
+   */
+  @GetMapping("/export-jobs/{id}/download")
+  @RequiresPermission("report:read")
+  public ResponseEntity<byte[]> downloadExport(@PathVariable UUID id) {
+    UUID actor = CurrentActor.userId();
+    var job = reports.fetchForDownload(actor, id);
+    if (job.getObjectKey() == null || content == null) {
+      throw AppException.stateConflict("EXPORT_NOT_READY", "Export not ready");
+    }
+    var data = content.read(job.getObjectKey(), null, ExportWorker.contentType(job.getFormat()));
+    String filename = "report-" + job.getId() + "." + ExportWorker.ext(job.getFormat());
+    return ResponseEntity.ok()
+        .header(HttpHeaders.CONTENT_DISPOSITION,
+            ContentDisposition.attachment().filename(filename).build().toString())
+        .contentType(MediaType.parseMediaType(data.contentType()))
+        .body(data.bytes());
+  }
+
+  @GetMapping("/tasks/{id}/history")
+  @RequiresPermission("report:read")
+  public ResponseEntity<ApiResult<Object>> history(@PathVariable UUID id) {
+    UUID actor = CurrentActor.userId();
+    policy.requireTaskRead(actor, id);
+    return ResponseEntity.ok(ApiResult.ok(
+        (Object) reports.history(actor, id), "report.history.success"));
+  }
+
+  /** F1: available dashboard scopes from the metric dictionary (no fake rows). */
+  @GetMapping("/dashboards")
+  @RequiresPermission("report:read")
+  public ResponseEntity<ApiResult<List<Object>>> dashboards() {
+    CurrentActor.require();
+    List<Object> items = List.of(
+        (Object) Map.of("scope", "PERSONAL", "overall", "OK"),
+        (Object) Map.of("scope", "PROJECT", "overall", "OK"),
+        (Object) Map.of("scope", "WORKSPACE", "overall", "PARTIAL",
+            "note", "unscoped metrics hidden"),
+        (Object) Map.of("scope", "SYSTEM", "overall", "PARTIAL",
+            "note", "private content hidden, ranking banned (R-07)"));
+    return ResponseEntity.ok(ApiResult.ok(items, "dashboard.list.success"));
+  }
+}

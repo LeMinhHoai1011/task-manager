@@ -1,0 +1,134 @@
+# SmartTask single-server production stack.
+#
+#   cp .env.example .env    # fill secrets + DOMAIN
+#   docker compose up -d --build
+#
+# Only Caddy publishes ports. Postgres and MinIO stay on the internal network.
+name: smarttask
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-smarttask}
+      POSTGRES_USER: ${POSTGRES_USER:-smarttask}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      TZ: ${TZ:-Asia/Ho_Chi_Minh}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+    stop_grace_period: 30s
+    networks: [internal]
+
+  # MinIO community images are not on Docker Hub under the old names anymore.
+  # The Bitnami legacy image bundles both the server and the `mc` client.
+  minio:
+    image: ${MINIO_IMAGE:-bitnamilegacy/minio:2025.7.23-debian-12-r5}
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER in .env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in .env}
+      MINIO_BROWSER: "off"
+      TZ: ${TZ:-Asia/Ho_Chi_Minh}
+    volumes:
+      - minio-data:/bitnami/minio/data
+    restart: unless-stopped
+    networks: [internal]
+
+  # One-shot: wait for MinIO, create the private bucket, create a dedicated
+  # application user (not root), and grant the readwrite policy.
+  minio-init:
+    image: ${MINIO_IMAGE:-bitnamilegacy/minio:2025.7.23-debian-12-r5}
+    depends_on:
+      - minio
+    environment:
+      HOME: /tmp
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER in .env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in .env}
+      MINIO_APP_USER: ${MINIO_APP_USER:?set MINIO_APP_USER in .env}
+      MINIO_APP_PASSWORD: ${MINIO_APP_PASSWORD:?set MINIO_APP_PASSWORD in .env}
+      MINIO_BUCKET: ${MINIO_BUCKET:-smarttask}
+    entrypoint: ["/bin/sh", "/init/minio-init.sh"]
+    volumes:
+      - ./minio-init.sh:/init/minio-init.sh:ro
+    restart: "no"
+    networks: [internal]
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    environment:
+      TZ: ${TZ:-Asia/Ho_Chi_Minh}
+      JAVA_OPTS: ${JAVA_OPTS:--XX:MaxRAMPercentage=75 -XX:+UseG1GC}
+      SERVER_FORWARD_HEADERS_STRATEGY: framework
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-smarttask}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-smarttask}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      FILE_GATEWAY_MODE: s3
+      FILE_GATEWAY_LOCAL_ROOT: /app/var/files
+      FILE_GATEWAY_MINIO_ENDPOINT: http://minio:9000
+      FILE_GATEWAY_MINIO_ACCESS_KEY: ${MINIO_APP_USER:?set MINIO_APP_USER in .env}
+      FILE_GATEWAY_MINIO_SECRET_KEY: ${MINIO_APP_PASSWORD:?set MINIO_APP_PASSWORD in .env}
+      FILE_GATEWAY_MINIO_BUCKET: ${MINIO_BUCKET:-smarttask}
+      SMARTTASK_SELF_REGISTRATION: ${SELF_REGISTRATION:-true}
+      SMARTTASK_WORKERS_ENABLED: "true"
+      SMARTTASK_BOOTSTRAP_ADMINUSERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-}
+      SMARTTASK_CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+      SMARTTASK_OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      SMARTTASK_OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1:8b}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - backend-files:/app/var/files
+    depends_on:
+      db:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+    networks: [internal]
+
+  web:
+    build:
+      context: ../web
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE: ${VITE_API_BASE:-/api/v1}
+        VITE_ENABLE_AI: ${VITE_ENABLE_AI:-true}
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+      TZ: ${TZ:-Asia/Ho_Chi_Minh}
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+      - "${HTTPS_PORT:-443}:443/udp"
+    depends_on:
+      backend:
+        condition: service_healthy
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    restart: unless-stopped
+    networks: [internal]
+
+networks:
+  internal:
+
+volumes:
+  db-data:
+  minio-data:
+  backend-files:
+  caddy-data:
+  caddy-config:
