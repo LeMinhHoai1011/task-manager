@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { t } from "../i18n";
 import { RealtimeIndicator } from "../realtime/RealtimeContext";
@@ -9,35 +9,39 @@ import ReauthModal from "./ReauthModal";
 export default function Layout({ children }: { children: ReactNode }) {
   const auth = useAuth();
   const nav = useNavigate();
+  const location = useLocation();
+  const titleByPath: Record<string, string> = { "/dashboard": "Tổng quan", "/workspaces": t("nav.workspaces"), "/projects": t("nav.projects"), "/tasks": t("nav.tasks"), "/calendar": t("nav.calendar"), "/files": t("nav.files"), "/notifications": t("nav.notifications"), "/reports": t("nav.reports"), "/ai": t("nav.ai"), "/admin": t("nav.admin") };
+  const title = location.pathname.startsWith("/tasks/") ? "Chi tiết công việc" : titleByPath[location.pathname] ?? t("app.title");
+  const link = (to: string, label: string, icon: string) => <NavLink to={to} className={({ isActive }) => `nav-link ${isActive ? "nav-link-active" : ""}`}><span aria-hidden>{icon}</span><span>{label}</span></NavLink>;
   return (
-    <div className="layout flex min-h-screen bg-slate-100 text-slate-900">
-      <nav className="side flex w-56 flex-col gap-1 bg-gradient-to-b from-blue-900 via-blue-950 to-slate-950 p-4 text-blue-50 shadow-lg">
-        <div className="mb-3 px-3 pt-1 text-sm font-bold uppercase tracking-wider text-blue-200">
-          {t("app.title")}
-        </div>
-        <NavLink to="/workspaces" className={({ isActive }) => `rounded-lg px-3 py-2 text-sm transition hover:bg-white/10 ${isActive ? "bg-white font-semibold text-blue-900 shadow" : "text-blue-50"}`}>{t("nav.workspaces")}</NavLink>
-        <NavLink to="/projects" className={({ isActive }) => `rounded-lg px-3 py-2 text-sm transition hover:bg-white/10 ${isActive ? "bg-white font-semibold text-blue-900 shadow" : "text-blue-50"}`}>{t("nav.projects")}</NavLink>
-        <NavLink to="/tasks" className={({ isActive }) => `rounded-lg px-3 py-2 text-sm transition hover:bg-white/10 ${isActive ? "bg-white font-semibold text-blue-900 shadow" : "text-blue-50"}`}>{t("nav.tasks")}</NavLink>
-        <NavLink to="/calendar" className={({ isActive }) => `rounded-lg px-3 py-2 text-sm transition hover:bg-white/10 ${isActive ? "bg-white font-semibold text-blue-900 shadow" : "text-blue-50"}`}>{t("nav.calendar")}</NavLink>
-        <NavLink to="/files" className={({ isActive }) => `rounded-lg px-3 py-2 text-sm transition hover:bg-white/10 ${isActive ? "bg-white font-semibold text-blue-900 shadow" : "text-blue-50"}`}>{t("nav.files")}</NavLink>
-        <NavLink to="/notifications" className={({ isActive }) => `rounded-lg px-3 py-2 text-sm transition hover:bg-white/10 ${isActive ? "bg-white font-semibold text-blue-900 shadow" : "text-blue-50"}`}>{t("nav.notifications")}</NavLink>
-        <NavLink to="/reports" className={({ isActive }) => `rounded-lg px-3 py-2 text-sm transition hover:bg-white/10 ${isActive ? "bg-white font-semibold text-blue-900 shadow" : "text-blue-50"}`}>{t("nav.reports")}</NavLink>
+    <div className="layout app-shell text-slate-900">
+      <nav aria-label="Điều hướng chính" className="side app-sidebar">
+        <NavLink to="/dashboard" className="brand"><span className="brand-mark">S</span><span>SmartTask</span></NavLink>
+        <p className="nav-group-label">KHÔNG GIAN LÀM VIỆC</p>
+        {link("/dashboard", "Tổng quan", "⌂")}
+        {link("/workspaces", t("nav.workspaces"), "◫")}
+        {link("/projects", t("nav.projects"), "▣")}
+        {link("/tasks", t("nav.tasks"), "✓")}
+        {link("/calendar", t("nav.calendar"), "□")}
+        <p className="nav-group-label mt-4">THEO DÕI</p>
+        {link("/files", t("nav.files"), "▤")}
+        {link("/notifications", t("nav.notifications"), "●")}
+        {link("/reports", t("nav.reports"), "▥")}
         {ENABLE_AI && (
-          <NavLink to="/ai" className={({ isActive }) => `rounded-lg px-3 py-2 text-sm transition hover:bg-white/10 ${isActive ? "bg-white font-semibold text-blue-900 shadow" : "text-blue-50"}`}>{t("nav.ai")}</NavLink>
+          link("/ai", t("nav.ai"), "✦")
         )}
-        <NavLink to="/admin" className={({ isActive }) => `rounded-lg px-3 py-2 text-sm transition hover:bg-white/10 ${isActive ? "bg-white font-semibold text-blue-900 shadow" : "text-blue-50"}`}>{t("nav.admin")}</NavLink>
-        <div className="mt-2 px-3"><RealtimeIndicator /></div>
-        <button
-          className="mt-4 rounded-lg border border-white/30 px-3 py-2 text-sm text-white transition hover:bg-white/10"
+        {link("/admin", t("nav.admin"), "⚙")}
+        <div className="mt-auto border-t border-slate-200 pt-4"><RealtimeIndicator /><button
+          className="btn btn-ghost mt-3 w-full justify-start"
           onClick={async () => {
             await auth.logout();
             nav("/login");
           }}
         >
           {t("auth.logout")}
-        </button>
+        </button></div>
       </nav>
-      <main className="flex-1 p-4">
+      <main className="app-main"><header className="app-header"><div><p className="text-xs font-medium text-slate-500">SMARTTASK / {title.toUpperCase()}</p><h1 className="sr-only">{title}</h1></div><div className="flex items-center gap-3"><span className="hidden text-sm text-slate-500 sm:inline">{auth.user?.email ?? ""}</span><span className="avatar" aria-label="Tài khoản">{(auth.user?.email ?? "U").slice(0, 1).toUpperCase()}</span></div></header><div className="app-content">
         {auth.sessionNotice && (
           <div role="alert" className="notice mb-3 rounded-md border border-yellow-400 bg-yellow-50 p-2">
             {t(auth.sessionNotice)}
@@ -45,7 +49,7 @@ export default function Layout({ children }: { children: ReactNode }) {
           </div>
         )}
         {children}
-      </main>
+      </div></main>
       <ReauthModal
         open={!!auth.reauth}
         message={auth.reauth?.message ?? "auth.reauth_desc"}

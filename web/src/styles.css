@@ -20,7 +20,9 @@
   --shadow-modal: 0 20px 50px rgb(15 23 42 / 0.25);
 }
 
-body { font-family: var(--font-sans); margin: 0; }
+body { font-family: var(--font-sans); margin: 0; background: #f8fafc; color: #0f172a; }
+button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
 
 /* Legacy classes kept for compatibility */
 .layout { display: flex; min-height: 100vh; }
@@ -36,7 +38,19 @@ main { padding: 16px; flex: 1; }
 .modal { background: #fff; padding: 24px; border-radius: 8px; min-width: 320px; }
 
 @layer components {
-  .page-title { @apply text-xl font-bold text-slate-900; }
+  .app-shell { @apply min-h-screen bg-slate-50; }
+  .app-sidebar { @apply sticky top-0 h-screen w-64 shrink-0 gap-1 border-r border-slate-200 bg-white p-3 shadow-none; }
+  .brand { @apply mb-5 flex items-center gap-2.5 rounded-lg px-2 py-2 text-lg font-bold tracking-tight text-slate-900; }
+  .brand-mark { @apply inline-flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-sm font-bold text-white; }
+  .nav-group-label { @apply mb-1 mt-1 px-3 pt-2 text-[10px] font-bold tracking-[0.12em] text-slate-400; }
+  .nav-link { @apply flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900; }
+  .nav-link-active { @apply bg-blue-50 text-primary; }
+  .app-main { @apply min-w-0 flex-1 p-0; }
+  .app-header { @apply sticky top-0 z-20 flex h-16 items-center justify-between border-b border-slate-200 bg-white/90 px-5 backdrop-blur md:px-8; }
+  .app-content { @apply p-5 md:p-8; }
+  .avatar { @apply inline-flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 text-sm font-bold text-primary; }
+  .page-title { @apply text-2xl font-bold tracking-tight text-slate-900; }
+  .section-title { @apply text-base font-semibold text-slate-900; }
   .page-subtitle { @apply mt-1 text-sm text-slate-500; }
 
   .card { @apply rounded-xl border border-slate-200 bg-white p-4 shadow-[var(--shadow-card)]; }
@@ -79,9 +93,21 @@ main { padding: 16px; flex: 1; }
   .alert-notice { @apply rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800; }
 
   .toolbar-sticky { @apply sticky top-0 z-10 -mx-1 bg-slate-50/95 px-1 py-2 backdrop-blur; }
+  .segmented { @apply inline-flex rounded-lg bg-slate-100 p-1; }
+  .segmented button { @apply rounded-md px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:text-slate-900; }
+  .segmented .segmented-active { @apply bg-white text-primary shadow-sm; }
   .dropzone { @apply flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 px-6 py-8 text-sm text-slate-500 transition hover:border-primary hover:bg-blue-50/50; }
   .dropzone-active { @apply border-primary bg-blue-50; }
   .progress-track { @apply h-2 w-full overflow-hidden rounded-full bg-slate-200; }
   .progress-fill { @apply h-full rounded-full bg-primary transition-all; }
   .timeline-dot { @apply mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-primary; }
+}
+
+@media (max-width: 767px) {
+  .app-sidebar { width: 60px; padding: 8px; }
+  .brand { justify-content: center; padding: 8px 0; }
+  .brand > span:last-child, .nav-link > span:last-child, .nav-group-label, .app-sidebar .btn { display: none; }
+  .nav-link { justify-content: center; padding: 10px; font-size: 16px; }
+  .app-header { padding-inline: 16px; }
+  .app-content { padding: 16px; }
 }

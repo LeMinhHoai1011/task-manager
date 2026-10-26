@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { apiFetch, mutationOpts, newIdempotencyKey, unwrapData, unwrapList } from "../api/client";
+import { apiFetch, mutationOpts, newIdempotencyKey, unwrapData, unwrapList, unwrapPage } from "../api/client";
 import { t } from "../i18n";
-import { Badge, Button, Card, EmptyState, ErrorAlert, Spinner, TextInput } from "../components/ui";
+import { Badge, Button, Card, EmptyState, ErrorAlert, Select, Spinner, TextInput } from "../components/ui";
 
 // Deadline date-only: hiển thị 23:59:59 theo tz người đặt.
 export function deadlineEndOfDay(dateOnly: string, _timeZone: string): Date {
@@ -31,6 +31,7 @@ interface CalItem {
   deadline?: string | null;
   tz?: string;
 }
+interface TaskOption { id: string; title: string; }
 
 export default function Calendar() {
   const [mode, setMode] = useState<"day" | "week" | "month" | "unscheduled">("week");
@@ -63,6 +64,13 @@ export default function Calendar() {
   const [remAt, setRemAt] = useState("");
   const [remId, setRemId] = useState("");
   const [remMsg, setRemMsg] = useState<string | null>(null);
+  const [tasks, setTasks] = useState<TaskOption[]>([]);
+
+  useEffect(() => {
+    apiFetch("/tasks", { query: { limit: 100, sort: "updated_at", order: "desc" } })
+      .then((r) => setTasks(unwrapPage<TaskOption>(r).items))
+      .catch(() => setTasks([]));
+  }, []);
 
   async function createReminder() {
     setRemMsg(null);
@@ -79,7 +87,9 @@ export default function Calendar() {
       const r = await apiFetch("/reminders", {
         ...mutationOpts({ idempotencyKey: newIdempotencyKey() }),
         method: "POST",
-        body: { task_id: remTask.trim(), remind_at: remAt.trim() },
+        // datetime-local is entered in the user's local timezone; serialize an
+        // explicit UTC instant for the OffsetDateTime backend contract.
+        body: { task_id: remTask.trim(), remind_at: new Date(remAt).toISOString() },
       });
       const d = unwrapData<{ id: string }>(r);
       setRemId(d?.id ?? "");
@@ -163,8 +173,8 @@ export default function Calendar() {
         <h2 className="text-sm font-semibold text-slate-900">{t("calendar.reminders")}</h2>
         {remMsg && <p role="status" className="mt-1 text-sm text-slate-600">{remMsg}</p>}
         <div className="row">
-          <TextInput className="!w-44" aria-label={t("calendar.task_id")} placeholder={t("calendar.task_id")} value={remTask} onChange={(e) => setRemTask(e.target.value)} />
-          <TextInput className="!w-56" aria-label={t("calendar.remind_at")} placeholder={t("calendar.remind_at")} value={remAt} onChange={(e) => setRemAt(e.target.value)} />
+          <Select className="min-w-56" aria-label="Công việc cần nhắc" value={remTask} onChange={(e) => setRemTask(e.target.value)}><option value="">Chọn công việc</option>{tasks.map((task) => <option key={task.id} value={task.id}>{task.title}</option>)}</Select>
+          <TextInput className="!w-56" type="datetime-local" aria-label="Thời điểm nhắc" value={remAt} onChange={(e) => setRemAt(e.target.value)} />
           <Button variant="primary" size="sm" onClick={() => void createReminder()}>{t("common.create")}</Button>
         </div>
         <div className="row">

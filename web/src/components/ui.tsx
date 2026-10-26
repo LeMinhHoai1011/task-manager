@@ -103,13 +103,15 @@ export function EmptyState({ title, description, action }: { title: string; desc
   );
 }
 
+export function Skeleton({ className = "" }: { className?: string }) { return <div aria-hidden className={`skeleton ${className}`} />; }
+
+export function StatusBadge({ state, children }: { state?: string; children: ReactNode }) { return <Badge state={state}>{children}</Badge>; }
+
 /** Hiển thị ErrorEnvelope trung tính (chỉ uiMessage đã map, không render text server). */
-export function ErrorAlert({ message }: { message: string | null }) {
+export function ErrorAlert({ message, onRetry }: { message: string | null; onRetry?: () => void }) {
   if (!message) return null;
   return (
-    <p role="alert" className="alert-error">
-      {message}
-    </p>
+    <div role="alert" className="alert-error"><span>{message}</span>{onRetry && <button className="ml-3 font-semibold underline" onClick={onRetry}>Thử lại</button>}</div>
   );
 }
 

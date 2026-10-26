@@ -7,6 +7,7 @@ import Layout from "./components/Layout";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Workspaces from "./pages/Workspaces";
+import Dashboard from "./pages/Dashboard";
 import Projects from "./pages/Projects";
 import Tasks from "./pages/Tasks";
 import TaskDetail from "./pages/TaskDetail";
@@ -33,6 +34,7 @@ export default function App() {
               <RequireAuth>
                 <Layout>
                   <Routes>
+                    <Route path="/dashboard" element={<Dashboard />} />
                     <Route path="/workspaces" element={<Workspaces />} />
                     <Route path="/projects" element={<Projects />} />
                     <Route path="/tasks" element={<Tasks />} />
@@ -43,7 +45,7 @@ export default function App() {
                     <Route path="/reports" element={<Reports />} />
                     <Route path="/ai" element={ENABLE_AI ? <Ai /> : <Navigate to="/tasks" replace />} />
                     <Route path="/admin" element={<RequireAdmin><Admin /></RequireAdmin>} />
-                    <Route path="*" element={<Navigate to="/tasks" replace />} />
+                    <Route path="*" element={<Navigate to="/dashboard" replace />} />
                   </Routes>
                 </Layout>
               </RequireAuth>

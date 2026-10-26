@@ -3,7 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { apiFetch, mutationOpts, newIdempotencyKey, unwrapPage } from "../api/client";
 import { t } from "../i18n";
 import { useRealtimeEvent } from "../realtime/RealtimeContext";
-import { Button, Card, EmptyState, ErrorAlert, Spinner, TextInput } from "../components/ui";
+import { Button, Card, EmptyState, ErrorAlert, Select, Spinner, TextInput } from "../components/ui";
 
 interface Project {
   id: string;
@@ -11,6 +11,7 @@ interface Project {
   workspace_id: string;
   status?: string;
 }
+interface WorkspaceOption { id: string; name: string; }
 
 /**
  * Nested GET /workspaces/{id}/projects da co (F4) nhung DTO rut gon; trang nay
@@ -28,6 +29,7 @@ export default function Projects() {
   const [newName, setNewName] = useState("");
   const [newWs, setNewWs] = useState("");
   const [formErr, setFormErr] = useState<string | null>(null);
+  const [workspaces, setWorkspaces] = useState<WorkspaceOption[]>([]);
 
   const load = useCallback(async (cursor?: string | null, ws?: string) => {
     if (!cursor) setLoading(true);
@@ -50,6 +52,12 @@ export default function Projects() {
     void load(null, wsFilter.trim() || undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [load]);
+
+  useEffect(() => {
+    apiFetch("/workspaces", { query: { limit: 100 } })
+      .then((r) => setWorkspaces(unwrapPage<WorkspaceOption>(r).items))
+      .catch(() => setWorkspaces([]));
+  }, []);
 
   useRealtimeEvent(["project"], () => {
     void load(null, wsFilter.trim() || undefined);
@@ -90,15 +98,12 @@ export default function Projects() {
           {t("projects.new")}
         </Button>
       </div>
-      <div className="mt-3 flex gap-2">
-        <TextInput aria-label="Search projects" placeholder="Search projects…" value={q} onChange={(e) => setQ(e.target.value)} />
-        <TextInput
-          aria-label={t("projects.workspace_filter")}
-          placeholder={t("projects.workspace_filter")}
-          value={wsFilter}
-          onChange={(e) => setWsFilter(e.target.value)}
-          onBlur={() => void load(null, wsFilter.trim() || undefined)}
-        />
+      <div className="mt-3 flex flex-wrap gap-2 rounded-xl border border-slate-200 bg-white p-3">
+        <TextInput className="max-w-sm" aria-label="Tìm kiếm dự án" placeholder="Tìm kiếm dự án…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <Select aria-label="Lọc theo không gian làm việc" value={wsFilter} onChange={(e) => { setWsFilter(e.target.value); void load(null, e.target.value || undefined); }}>
+          <option value="">Tất cả không gian làm việc</option>
+          {workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+        </Select>
       </div>
       {err && items.length > 0 && <ErrorAlert message={err} />}
       {loading ? (
@@ -110,7 +115,8 @@ export default function Projects() {
           {filtered.map((p) => (
             <Card key={p.id} className="card-hover">
               <p className="font-semibold text-slate-900">{p.name}</p>
-              <p className="mt-1 truncate text-xs text-slate-500">workspace: {p.workspace_id}</p>
+              <p className="mt-1 truncate text-xs text-slate-500">{workspaces.find((w) => w.id === p.workspace_id)?.name ?? "Không gian làm việc"}</p>
+              {p.status && <p className="mt-2"><span className="badge-state badge-todo">{p.status}</span></p>}
               <Link to={`/tasks?project=${p.id}`} className="mt-1 inline-block text-xs text-primary hover:underline">
                 {t("nav.tasks")} →
               </Link>
@@ -131,7 +137,10 @@ export default function Projects() {
             <h2 className="text-base font-bold text-slate-900">{t("projects.create_title")}</h2>
             <div className="mt-3 flex flex-col gap-2">
               <TextInput aria-label={t("projects.name")} placeholder={t("projects.name")} value={newName} onChange={(e) => setNewName(e.target.value)} />
-              <TextInput aria-label={t("projects.workspace_id")} placeholder={t("projects.workspace_id")} value={newWs} onChange={(e) => setNewWs(e.target.value)} />
+              <Select aria-label="Không gian làm việc" value={newWs} onChange={(e) => setNewWs(e.target.value)}>
+                <option value="">Chọn không gian làm việc</option>
+                {workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+              </Select>
             </div>
             <ErrorAlert message={formErr} />
             <div className="mt-4 flex justify-end gap-2">

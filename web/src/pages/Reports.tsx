@@ -1,7 +1,7 @@
-import { useState } from "react";
-import { apiDownload, apiFetch, mutationOpts, newIdempotencyKey, saveBlobAsFile, unwrapData } from "../api/client";
+import { useEffect, useState } from "react";
+import { apiDownload, apiFetch, mutationOpts, newIdempotencyKey, saveBlobAsFile, unwrapData, unwrapPage } from "../api/client";
 import { t } from "../i18n";
-import { Button, Card, EmptyState, ErrorAlert, Spinner, TextInput } from "../components/ui";
+import { Button, Card, EmptyState, ErrorAlert, Select, Spinner } from "../components/ui";
 
 type Dash = "personal" | "project";
 
@@ -32,6 +32,7 @@ interface ExportJob {
   export_job_id: string;
   status: string;
 }
+interface ProjectOption { id: string; name: string; }
 
 // PH-6: dashboard personal/project + export durable (TTL 24h, chỉ requester tải).
 // Download tải bytes thật qua blob/objectURL (GET /export-jobs/{id}/download trả
@@ -43,6 +44,8 @@ export default function Reports() {
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [projects, setProjects] = useState<ProjectOption[]>([]);
+  useEffect(() => { apiFetch("/projects", { query: { limit: 100 } }).then((r) => setProjects(unwrapPage<ProjectOption>(r).items)).catch(() => setProjects([])); }, []);
 
   async function load(d: Dash) {
     setErr(null);
@@ -112,12 +115,7 @@ export default function Reports() {
     <div className="mx-auto max-w-5xl">
       <h1 className="page-title">{t("nav.reports")}</h1>
       <div className="mt-3 flex max-w-md gap-2">
-        <TextInput
-          aria-label={t("reports.project_id_hint")}
-          placeholder={t("reports.project_id_hint")}
-          value={projectId}
-          onChange={(e) => setProjectId(e.target.value)}
-        />
+        <Select aria-label="Dự án báo cáo" value={projectId} onChange={(e) => setProjectId(e.target.value)}><option value="">Báo cáo cá nhân</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</Select>
       </div>
       <div className="row">
         <Button variant="secondary" size="sm" onClick={() => void load("personal")}>{t("reports.personal")}</Button>

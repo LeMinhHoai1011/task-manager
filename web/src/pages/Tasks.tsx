@@ -38,6 +38,7 @@ export default function Tasks() {
   const [items, setItems] = useState<TaskRow[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [view, setView] = useState<"list" | "kanban">("list");
 
   const load = useCallback(
     async (c: string | null) => {
@@ -91,8 +92,8 @@ export default function Tasks() {
 
   return (
     <div className="mx-auto max-w-6xl">
-      <h1 className="page-title">{t("nav.tasks")}</h1>
-      <div className="toolbar-sticky filters">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h1 className="page-title">{t("nav.tasks")}</h1><p className="page-subtitle">Theo dõi và sắp xếp công việc trong phạm vi bạn được cấp quyền.</p></div><div className="segmented" role="group" aria-label="Chế độ hiển thị"><button className={view === "list" ? "segmented-active" : ""} onClick={() => setView("list")}>Danh sách</button><button className={view === "kanban" ? "segmented-active" : ""} onClick={() => setView("kanban")}>Kanban</button></div></div>
+      <div className="toolbar-sticky filters rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
         <Select aria-label={t("tasks.filter_state")} value={state} onChange={(e) => setState(e.target.value)}>
           <option value="">{`${t("tasks.filter_state")}: ${t("common.all")}`}</option>
           {STATE_OPTIONS.map((s) => (
@@ -101,8 +102,8 @@ export default function Tasks() {
             </option>
           ))}
         </Select>
-        <TextInput className="!w-32" placeholder={t("tasks.filter_project")} aria-label={t("tasks.filter_project")} value={project} onChange={(e) => setProject(e.target.value)} />
-        <TextInput className="!w-32" placeholder={t("tasks.filter_assignee")} aria-label={t("tasks.filter_assignee")} value={assignee} onChange={(e) => setAssignee(e.target.value)} />
+        <TextInput className="!w-32" placeholder="Mã dự án" aria-label={t("tasks.filter_project")} value={project} onChange={(e) => setProject(e.target.value)} />
+        <TextInput className="!w-32" placeholder="Mã người phụ trách" aria-label={t("tasks.filter_assignee")} value={assignee} onChange={(e) => setAssignee(e.target.value)} />
         <TextInput className="!w-28" placeholder={t("tasks.filter_tag")} aria-label={t("tasks.filter_tag")} value={tag} onChange={(e) => setTag(e.target.value)} />
         <Select aria-label={t("tasks.filter_blocked")} value={blocked} onChange={(e) => setBlocked(e.target.value)}>
           <option value="">{`${t("tasks.filter_blocked")} ${t("common.all")}`}</option>
@@ -145,6 +146,8 @@ export default function Tasks() {
         </Card>
       ) : items.length === 0 ? (
         <EmptyState title={t("tasks.empty_title")} description={t("tasks.empty_desc")} />
+      ) : view === "list" ? (
+        <Card className="mt-4 overflow-x-auto !p-0"><table className="table min-w-[700px]"><thead><tr><th>Công việc</th><th>Trạng thái</th><th>Hạn hoàn thành</th><th>Trở ngại</th></tr></thead><tbody>{items.map((it) => { const due = it.deadline ?? it.due_at; const blockedTask = it.blocked ?? it.blocked_flag ?? false; return <tr key={it.id}><td><Link to={`/tasks/${it.id}`} className="font-medium text-slate-900 hover:text-primary">{it.title}</Link></td><td><Badge state={it.state}>{it.state}</Badge></td><td>{due ? String(due).slice(0, 10) : "—"}</td><td>{blockedTask ? <Badge state="BLOCKED">{t("task.blocked")}</Badge> : "—"}</td></tr>; })}</tbody></table></Card>
       ) : (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {Object.entries(grouped).map(([st, rows]) => (

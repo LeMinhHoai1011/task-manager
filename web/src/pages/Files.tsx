@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { API_BASE, apiFetch, mutationOpts, newIdempotencyKey, unwrapData, unwrapList } from "../api/client";
+import { API_BASE, apiFetch, mutationOpts, newIdempotencyKey, unwrapData, unwrapList, unwrapPage } from "../api/client";
 import { t } from "../i18n";
-import { Button, Card, EmptyState, ErrorAlert, Spinner, TextInput } from "../components/ui";
+import { Button, Card, EmptyState, ErrorAlert, Select, Spinner, TextInput } from "../components/ui";
 
 // PH-3: upload_session -> staging -> commit (version tăng, không ghi đè),
 // preview/download qua gateway + StreamTicket single-use TTL 30s.
@@ -13,6 +13,7 @@ interface Attachment {
   status?: string;
   version?: number;
 }
+interface TaskOption { id: string; title: string; }
 
 export default function Files({ taskId: taskIdProp }: { taskId?: string }) {
   const [params, setParams] = useSearchParams();
@@ -27,6 +28,7 @@ export default function Files({ taskId: taskIdProp }: { taskId?: string }) {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [listLoading, setListLoading] = useState(false);
   const [taskInput, setTaskInput] = useState(taskId);
+  const [tasks, setTasks] = useState<TaskOption[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function loadAttachments(tid: string) {
@@ -55,6 +57,12 @@ export default function Files({ taskId: taskIdProp }: { taskId?: string }) {
     void loadAttachments(taskId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taskId]);
+
+  useEffect(() => {
+    apiFetch("/tasks", { query: { limit: 100, sort: "updated_at", order: "desc" } })
+      .then((r) => setTasks(unwrapPage<TaskOption>(r).items))
+      .catch(() => setTasks([]));
+  }, []);
 
   async function upload(f: File) {
     setErr(null);
@@ -158,13 +166,12 @@ export default function Files({ taskId: taskIdProp }: { taskId?: string }) {
   return (
     <div className="mx-auto max-w-4xl">
       <h1 className="page-title">{t("nav.files")}</h1>
-      <div className="mt-3 flex gap-2">
-        <TextInput
-          aria-label={t("files.task_id")}
-          placeholder={t("files.task_id")}
+      <div className="mt-3 flex flex-wrap gap-2 rounded-xl border border-slate-200 bg-white p-3">
+        <Select
+          aria-label="Công việc"
           value={taskInput}
           onChange={(e) => setTaskInput(e.target.value)}
-        />
+        ><option value="">Chọn công việc để quản lý tệp</option>{tasks.map((task) => <option key={task.id} value={task.id}>{task.title}</option>)}</Select>
         <Button
           variant="secondary"
           size="sm"
@@ -206,7 +213,7 @@ export default function Files({ taskId: taskIdProp }: { taskId?: string }) {
             if (f) void upload(f);
           }}
         />
-        <Button variant="secondary" size="sm">Choose file</Button>
+        <Button variant="secondary" size="sm">Chọn tệp</Button>
       </div>
       {progress !== null && (
         <div className="mt-2">
@@ -261,14 +268,14 @@ export default function Files({ taskId: taskIdProp }: { taskId?: string }) {
         </div>
       </Card>
       <Card className="mt-4">
-        <h2 className="text-sm font-semibold text-slate-900">Versions</h2>
+        <h2 className="text-sm font-semibold text-slate-900">Phiên bản phát sinh trong phiên hiện tại</h2>
         <table className="table mt-2">
           <thead><tr><th>Version</th><th>Note</th></tr></thead>
           <tbody>
             {versions.map((v, i) => (
               <tr key={i}><td>v{v.version}</td><td>{v.note}</td></tr>
             ))}
-            {versions.length === 0 && <tr><td colSpan={2} className="text-slate-400">No versions yet</td></tr>}
+            {versions.length === 0 && <tr><td colSpan={2} className="text-slate-400">Chưa có thao tác phiên bản trong phiên này.</td></tr>}
           </tbody>
         </table>
       </Card>

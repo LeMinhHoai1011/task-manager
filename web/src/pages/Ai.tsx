@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { apiFetch, mutationOpts, newIdempotencyKey, unwrapData, unwrapList } from "../api/client";
+import { apiFetch, mutationOpts, newIdempotencyKey, unwrapData, unwrapList, unwrapPage } from "../api/client";
 import { t } from "../i18n";
-import { Button, Card, EmptyState, ErrorAlert, Select, TextInput } from "../components/ui";
+import { Button, Card, EmptyState, ErrorAlert, Select } from "../components/ui";
 
 // AI chỉ gợi ý, không bao giờ tự mutation: mọi thay đổi công việc đều qua nút
 // "Xác nhận áp dụng" rõ ràng (POST /ai/jobs/{id}/accept) sau khi user xem bản nháp.
@@ -29,6 +29,7 @@ interface AiSuggestion {
   status: string;
   payload: string;
 }
+interface ProjectOption { id: string; name: string; }
 
 function parsePayload(payload: string): Array<{ k: string; v: string }> | null {
   try {
@@ -59,6 +60,7 @@ export default function Ai() {
   const [busy, setBusy] = useState(false);
   const [confirmAccept, setConfirmAccept] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [projects, setProjects] = useState<ProjectOption[]>([]);
 
   async function loadHistory() {
     try {
@@ -72,6 +74,7 @@ export default function Ai() {
 
   useEffect(() => {
     void loadHistory();
+    apiFetch("/projects", { query: { limit: 100 } }).then((r) => setProjects(unwrapPage<ProjectOption>(r).items)).catch(() => setProjects([]));
   }, []);
 
   async function refreshJob(id: string) {
@@ -190,12 +193,12 @@ export default function Ai() {
   const parsed = suggestion ? parsePayload(suggestion.payload) : null;
 
   return (
-    <div className="mx-auto max-w-4xl">
+    <div className="mx-auto max-w-6xl">
       <h1 className="page-title">{t("ai.title")}</h1>
       <p className="page-subtitle">{t("ai.desc")}</p>
       <ErrorAlert message={err} />
       {notice && <p role="status" className="mt-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">{notice}</p>}
-      <Card className="mt-3">
+      <div className="mt-3 grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]"><Card>
         <div className="flex flex-wrap items-end gap-2">
           <label className="block">
             <span className="label">{t("ai.feature")}</span>
@@ -207,7 +210,7 @@ export default function Ai() {
           </label>
           <label className="block">
             <span className="label">{t("ai.project_id")}</span>
-            <TextInput className="!w-56" value={projectId} onChange={(e) => setProjectId(e.target.value)} />
+            <Select className="min-w-56" value={projectId} onChange={(e) => setProjectId(e.target.value)}><option value="">Không gắn dự án</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</Select>
           </label>
         </div>
         <label className="mt-2 block">
@@ -248,7 +251,7 @@ export default function Ai() {
           </table>
         </Card>
       )}
-      <Card className="mt-3">
+      <Card>
         <h2 className="text-sm font-semibold text-slate-900">{t("ai.suggestion")}</h2>
         {!suggestion ? (
           <div className="mt-2"><EmptyState title={t("ai.no_suggestion")} /></div>
@@ -266,7 +269,7 @@ export default function Ai() {
         ) : (
           <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{suggestion.payload}</p>
         )}
-      </Card>
+      </Card></div>
       {confirmAccept && (
         <div role="dialog" aria-modal="true" aria-label={t("ai.accept")} className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
           <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-lg">

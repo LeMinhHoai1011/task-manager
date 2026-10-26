@@ -38,6 +38,7 @@ export default function Notifications() {
   const [quietMsg, setQuietMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [filter, setFilter] = useState<"all" | "unread" | "task" | "reminder" | "system">("all");
 
   const load = useCallback(async (cursor?: string | null) => {
     if (cursor) setLoadingMore(true);
@@ -142,6 +143,12 @@ export default function Notifications() {
   }
 
   const unread = items.filter((n) => !n.read).length;
+  const visible = items.filter((n) => {
+    if (filter === "unread") return !n.read;
+    if (filter === "all") return true;
+    const kind = (n.kind ?? "").toLowerCase();
+    return filter === "task" ? kind.includes("task") : filter === "reminder" ? kind.includes("remind") : !kind.includes("task") && !kind.includes("remind");
+  });
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -156,6 +163,13 @@ export default function Notifications() {
       </div>
       <ErrorAlert message={err} />
       {notice && <p role="status" className="mt-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">{notice}</p>}
+      <div className="segmented mt-3" role="group" aria-label="Lọc thông báo">
+        <button className={filter === "all" ? "segmented-active" : ""} onClick={() => setFilter("all")}>Tất cả</button>
+        <button className={filter === "unread" ? "segmented-active" : ""} onClick={() => setFilter("unread")}>Chưa đọc</button>
+        <button className={filter === "task" ? "segmented-active" : ""} onClick={() => setFilter("task")}>Công việc</button>
+        <button className={filter === "reminder" ? "segmented-active" : ""} onClick={() => setFilter("reminder")}>Nhắc việc</button>
+        <button className={filter === "system" ? "segmented-active" : ""} onClick={() => setFilter("system")}>Hệ thống</button>
+      </div>
       {quietSupported ? (
         <Card className="mt-3">
           <h2 className="text-sm font-semibold text-slate-900">{t("notifications.quiet_hours")}</h2>
@@ -187,11 +201,11 @@ export default function Notifications() {
       )}
       {loading ? (
         <div className="mt-3"><Spinner label={t("notifications.loading")} /></div>
-      ) : items.length === 0 && !err ? (
+      ) : visible.length === 0 && !err ? (
         <div className="mt-3"><EmptyState title={t("notifications.no_items")} /></div>
       ) : (
         <ul className="mt-3 flex flex-col gap-2">
-          {items.map((n) => (
+          {visible.map((n) => (
             <li key={n.id} className={`flex items-center gap-2.5 rounded-xl border bg-white px-3 py-2.5 text-sm ${n.read ? "border-slate-200" : "border-blue-200 bg-blue-50/50"}`}>
               {!n.read && <span className="h-2 w-2 shrink-0 rounded-full bg-blue-600" aria-label="unread" />}
               <span className={`rounded px-1.5 py-0.5 text-xs ${n.read ? "bg-slate-100 text-slate-500" : "bg-blue-100 text-blue-800"}`}>
