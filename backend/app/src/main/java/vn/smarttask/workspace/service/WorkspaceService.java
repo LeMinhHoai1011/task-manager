@@ -86,9 +86,15 @@ public class WorkspaceService {
   }
 
   @Transactional
-  public WorkspaceInvitation invite(UUID actorId, UUID wsId, String email, String role, int daysValid) {    requireActive(actorId);
-    requireRole(wsId, actorId, "OWNER", "ADMIN");
+  public WorkspaceInvitation invite(UUID actorId, UUID wsId, String email, String role, int daysValid) {
+    requireActive(actorId);
     Workspace w = workspaces.findById(wsId).orElseThrow(() -> AppException.notFound("WS not found"));
+    if ("PERSONAL".equals(w.getType())) {
+      audit.appendDenied(actorId, "workspace.invite", "workspace", wsId,
+          "PERSONAL_WORKSPACE_IMMUTABLE");
+      throw AppException.forbidden("Cannot invite members to a Personal Workspace");
+    }
+    requireRole(wsId, actorId, "OWNER", "ADMIN");
     if (!"ACTIVE".equals(w.getStatus())) {
       audit.appendDenied(actorId, "workspace.invite", "workspace", wsId, "WS_NOT_ACTIVE");
       throw AppException.stateConflict("WS_NOT_ACTIVE", "Workspace not active");

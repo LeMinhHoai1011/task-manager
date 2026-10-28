@@ -112,9 +112,10 @@ public class IdentityService {
     }
     AppUser u = new AppUser(UuidV7.generate(), username, email,
         encoder.encode(password), displayName);
-    u.setStatus("PENDING");
-    u.setActive(false);
+    u.setStatus("ACTIVE");
+    u.setActive(true);
     users.save(u);
+    ensurePersonalWorkspace(u);
     audit.append(u.getId(), "auth.register", "app_user", u.getId(), "ALLOWED", null, "{}");
     outbox.emit("app_user", u.getId(), "user.registered", "{}");
     return u;

@@ -6,11 +6,16 @@ import java.util.UUID;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import vn.smarttask.common.ApiResult;
+import vn.smarttask.common.AppException;
+import vn.smarttask.common.service.AuditService;
+import vn.smarttask.identity.entity.AppUser;
 import vn.smarttask.identity.repo.AppUserRepository;
 import vn.smarttask.identity.service.IdentityService;
 import vn.smarttask.security.CurrentActor;
 import vn.smarttask.security.GrantService;
 import vn.smarttask.security.RequiresPermission;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
  * §7 accounts alias (docs EP-021..023): approve-pending queue + approve /
@@ -24,10 +29,11 @@ public class AccountController {
   private final IdentityService identity;
   private final GrantService grants;
   private final AppUserRepository users;
+  private final AuditService audit;
 
   public AccountController(IdentityService identity, GrantService grants,
-      AppUserRepository users) {
-    this.identity = identity; this.grants = grants; this.users = users;
+      AppUserRepository users, AuditService audit) {
+    this.identity = identity; this.grants = grants; this.users = users; this.audit = audit;
   }
 
   private void requireApproveGrant(UUID approver, String action, UUID target) {
@@ -70,5 +76,62 @@ public class AccountController {
     var u = identity.approve(approver, id, false, true);
     return ResponseEntity.ok(ApiResult.ok(Map.of("user_id", u.getId().toString()),
         "account.reject.success"));
+  }
+
+  /** EP-026: lock an account (admin only). */
+  public record LockRequest(@JsonProperty("locked_until_minutes") Long lockedUntilMinutes) {}
+
+  @PostMapping("/{id}/lock")
+  @RequiresPermission("account:write")
+  public ResponseEntity<ApiResult<Object>> lock(@PathVariable UUID id,
+      @RequestBody(required = false) LockRequest req) {
+    UUID actor = CurrentActor.userId();
+    requireApproveGrant(actor, "account.lock", id);
+    AppUser u = users.findById(id)
+        .orElseThrow(() -> AppException.notFound("User not found"));
+    u.setLocked(true);
+    if (req != null && req.lockedUntilMinutes != null && req.lockedUntilMinutes > 0) {
+      u.setLockedUntil(java.time.OffsetDateTime.now(java.time.ZoneOffset.UTC)
+          .plusMinutes(req.lockedUntilMinutes));
+    } else {
+      u.setLockedUntil(null);
+    }
+    users.save(u);
+    auditAppend(actor, "account.lock", id, "ALLOWED");
+    return ResponseEntity.ok(ApiResult.ok(Map.of("user_id", u.getId().toString(),
+        "locked", u.isLocked(), "locked_until", u.getLockedUntil()),
+        "account.lock.success"));
+  }
+
+  /** EP-027: unlock an account (admin only). */
+  @PostMapping("/{id}/unlock")
+  @RequiresPermission("account:write")
+  public ResponseEntity<ApiResult<Object>> unlock(@PathVariable UUID id) {
+    UUID actor = CurrentActor.userId();
+    requireApproveGrant(actor, "account.unlock", id);
+    AppUser u = users.findById(id)
+        .orElseThrow(() -> AppException.notFound("User not found"));
+    u.setLocked(false);
+    u.setLockedUntil(null);
+    users.save(u);
+    auditAppend(actor, "account.unlock", id, "ALLOWED");
+    return ResponseEntity.ok(ApiResult.ok(Map.of("user_id", u.getId().toString(),
+        "locked", u.isLocked()), "account.unlock.success"));
+  }
+
+  /** EP-028: admin resets password to a temporary one (returned once). */
+  @PostMapping("/{id}/reset-password")
+  @RequiresPermission("account:write")
+  public ResponseEntity<ApiResult<Object>> resetPassword(@PathVariable UUID id) {
+    UUID actor = CurrentActor.userId();
+    requireApproveGrant(actor, "account.reset_password", id);
+    String temp = identity.resetPasswordTemp(actor, id);
+    auditAppend(actor, "account.reset_password", id, "ALLOWED");
+    return ResponseEntity.ok(ApiResult.ok(Map.of("user_id", id.toString(),
+        "temporary_password", temp), "account.reset_password.success"));
+  }
+
+  private void auditAppend(UUID actor, String action, UUID target, String outcome) {
+    audit.append(actor, action, "app_user", target, outcome, null, "{}");
   }
 }

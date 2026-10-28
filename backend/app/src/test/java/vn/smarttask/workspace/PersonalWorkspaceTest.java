@@ -10,12 +10,14 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import vn.smarttask.common.AppException;
+import vn.smarttask.common.UuidV7;
 import vn.smarttask.common.service.AuditService;
 import vn.smarttask.common.service.OutboxService;
 import vn.smarttask.identity.entity.AppUser;
 import vn.smarttask.identity.repo.AppUserRepository;
 import vn.smarttask.project.repo.ProjectMembershipRepository;
 import vn.smarttask.project.repo.ProjectRepository;
+import vn.smarttask.workspace.entity.Workspace;
 import vn.smarttask.workspace.repo.*;
 import vn.smarttask.workspace.service.WorkspaceService;
 
@@ -66,5 +68,20 @@ public class PersonalWorkspaceTest {
     assertEquals("STATE_CONFLICT", ex.getCode());
     verify(audit).appendDenied(eq(uid), eq("workspace.createPersonal"), eq("workspace"),
         isNull(), eq("ALREADY_EXISTS"));
+  }
+
+  @Test
+  void inviteToPersonalWorkspaceIsRejected() {
+    UUID uid = UUID.randomUUID();
+    activeUser(uid);
+    Workspace personal = new Workspace(UuidV7.generate(), "personal", uid, "PERSONAL");
+    when(workspaces.findById(any())).thenReturn(Optional.of(personal));
+
+    AppException ex = assertThrows(AppException.class,
+        () -> svc().invite(uid, personal.getId(), "target@example.com", "MEMBER", 7));
+    assertEquals(403, ex.getHttpStatus().value());
+    assertEquals("FORBIDDEN", ex.getCode());
+    verify(audit).appendDenied(eq(uid), eq("workspace.invite"), eq("workspace"), eq(personal.getId()),
+        eq("PERSONAL_WORKSPACE_IMMUTABLE"));
   }
 }

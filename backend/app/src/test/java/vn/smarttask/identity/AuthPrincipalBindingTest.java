@@ -20,6 +20,7 @@ import vn.smarttask.common.AppException;
 import vn.smarttask.common.UuidV7;
 import vn.smarttask.common.service.AuditService;
 import vn.smarttask.identity.entity.ReauthTicket;
+import vn.smarttask.identity.repo.AppUserRepository;
 import vn.smarttask.identity.service.IdentityService;
 import vn.smarttask.security.GrantService;
 import vn.smarttask.security.Principal;
@@ -34,6 +35,7 @@ class AuthPrincipalBindingTest {
 
   @Mock IdentityService identity;
   @Mock AuditService audit;
+  @Mock AppUserRepository users;
 
   @AfterEach
   void tearDown() {
@@ -54,7 +56,7 @@ class AuthPrincipalBindingTest {
         OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(5));
     when(identity.issueReauthTicket(eq(user), eq("sensitive"), any())).thenReturn(t);
 
-    var res = new AuthController(identity, new GrantService(audit))
+    var res = new AuthController(identity, new GrantService(audit), users)
         .reauth(Map.of("action", "sensitive"));
     assertEquals(200, res.getStatusCode().value());
     verify(identity).issueReauthTicket(eq(user), eq("sensitive"), any());
@@ -62,7 +64,7 @@ class AuthPrincipalBindingTest {
 
   @Test
   void reauthWithoutAuthenticationIs401() {
-    assertThrows(AppException.class, () -> new AuthController(identity, new GrantService(audit))
+    assertThrows(AppException.class, () -> new AuthController(identity, new GrantService(audit), users)
         .reauth(Map.of("action", "sensitive")));
   }
 
@@ -72,7 +74,7 @@ class AuthPrincipalBindingTest {
     loginAs(approver);
 
     AppException ex = assertThrows(AppException.class,
-        () -> new AuthController(identity, new GrantService(audit))
+        () -> new AuthController(identity, new GrantService(audit), users)
             .approve(new AuthController.ApproveRequest(target, true)));
     assertEquals(403, ex.getHttpStatus().value());
     assertEquals("FORBIDDEN", ex.getCode());
@@ -86,7 +88,7 @@ class AuthPrincipalBindingTest {
     loginAs(admin);
 
     AppException ex = assertThrows(AppException.class,
-        () -> new AuthController(identity, new GrantService(audit))
+        () -> new AuthController(identity, new GrantService(audit), users)
             .createByAdmin(new AuthController.CreateUserRequest("u", "u@x.io", "pw", "U")));
     assertEquals(403, ex.getHttpStatus().value());
   }

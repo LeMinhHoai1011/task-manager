@@ -10,6 +10,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import vn.smarttask.common.ApiResult;
 import vn.smarttask.common.AppException;
+import vn.smarttask.identity.repo.AppUserRepository;
 import vn.smarttask.identity.service.IdentityService;
 import vn.smarttask.security.CurrentActor;
 import vn.smarttask.security.GrantService;
@@ -19,10 +20,13 @@ import vn.smarttask.security.GrantService;
 public class AuthController {
   private final IdentityService identity;
   private final GrantService grants;
+  private final AppUserRepository users;
 
-  public AuthController(IdentityService identity, GrantService grants) {
+  public AuthController(IdentityService identity, GrantService grants,
+      AppUserRepository users) {
     this.identity = identity;
     this.grants = grants;
+    this.users = users;
   }
 
   public record LoginRequest(@JsonProperty("username") @NotBlank String username,
@@ -73,6 +77,40 @@ public class AuthController {
     return ResponseEntity.ok(ApiResult.ok(
         new TokenData(r.accessToken(), r.refreshToken(), r.expiresAt(), r.userId(), role),
         "auth.refresh.success"));
+  }
+
+  /** EP-024: look up an ACTIVE user by username for inviting to a project.
+   *  Returns only id, username, display_name — never email or other private data. */
+  public record LookupResponse(UUID id, String username, String displayName) {}
+
+  @GetMapping("/users/lookup")
+  public ResponseEntity<ApiResult<LookupResponse>> lookup(
+      @RequestParam(required = false, name = "username") String username) {
+    if (username == null || username.isBlank()) {
+      throw AppException.badRequest("USERNAME_REQUIRED", "username required");
+    }
+    var u = users.findByUsernameIgnoreCase(username.trim())
+        .filter(appUser -> "ACTIVE".equals(appUser.getStatus()) && appUser.isActive())
+        .orElseThrow(() -> AppException.notFound("User not found"));
+    return ResponseEntity.ok(ApiResult.ok(
+        new LookupResponse(u.getId(), u.getUsername(), u.getDisplayName()),
+        "auth.lookup.success"));
+  }
+
+  /** EP-025: authenticated user changes their own password. */
+  public record ChangePasswordRequest(@JsonProperty("old_password") String oldPassword,
+      @JsonProperty("new_password") String newPassword) {}
+
+  @PostMapping("/change-password")
+  public ResponseEntity<ApiResult<Object>> changePassword(
+      @Valid @RequestBody ChangePasswordRequest req) {
+    UUID userId = CurrentActor.userId();
+    if (req.oldPassword == null || req.oldPassword.isBlank()
+        || req.newPassword == null || req.newPassword.isBlank()) {
+      throw AppException.badRequest("PASSWORD_REQUIRED", "old and new password required");
+    }
+    identity.changePassword(userId, req.oldPassword, req.newPassword);
+    return ResponseEntity.ok(ApiResult.ok(null, "auth.password.change.success"));
   }
 
   /** Reauth ticket is always issued for the authenticated principal, never X-User-Id. */
