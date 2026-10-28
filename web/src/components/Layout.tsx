@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { NavLink, useLocation, useNavigate, Navigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { t } from "../i18n";
 import { RealtimeIndicator } from "../realtime/RealtimeContext";
@@ -10,6 +10,13 @@ export default function Layout({ children }: { children: ReactNode }) {
   const auth = useAuth();
   const nav = useNavigate();
   const location = useLocation();
+
+  // Nếu tài khoản bắt buộc đổi mật khẩu (sau khi admin reset), chuyển hướng đến
+  // trang đổi mật khẩu (trừ khi đang ở trang đó hoặc đăng nhập).
+  if (auth.user?.mustChangePassword && location.pathname !== "/change-password") {
+    return <Navigate to="/change-password" replace />;
+  }
+
   const titleByPath: Record<string, string> = { "/dashboard": "Tổng quan", "/workspaces": t("nav.workspaces"), "/projects": t("nav.projects"), "/tasks": t("nav.tasks"), "/calendar": t("nav.calendar"), "/files": t("nav.files"), "/notifications": t("nav.notifications"), "/reports": t("nav.reports"), "/ai": t("nav.ai"), "/admin": t("nav.admin") };
   const title = location.pathname.startsWith("/tasks/") ? "Chi tiết công việc" : titleByPath[location.pathname] ?? t("app.title");
   const link = (to: string, label: string, icon: string) => <NavLink to={to} className={({ isActive }) => `nav-link ${isActive ? "nav-link-active" : ""}`}><span aria-hidden>{icon}</span><span>{label}</span></NavLink>;

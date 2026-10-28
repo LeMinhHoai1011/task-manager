@@ -84,7 +84,7 @@ public class IdentityService {
   }
 
   public record LoginResult(String accessToken, String refreshToken, OffsetDateTime expiresAt,
-      UUID userId, boolean isSystemAdmin) {}
+      UUID userId, boolean isSystemAdmin, boolean mustChangePassword) {}
 
   private static String opaqueToken() {
     return UuidV7.generate().toString().replace("-", "");
@@ -227,7 +227,7 @@ public class IdentityService {
     audit.append(u.getId(), "auth.login", "user_session", s.getId(), "ALLOWED", null, "{}");
     outbox.emit("user_session", s.getId(), "security_event.login", "{}");
     boolean isSystemAdmin = grants != null && grants.isSystemAdmin(u.getId());
-    return new LoginResult(access, refresh, exp, u.getId(), isSystemAdmin);
+    return new LoginResult(access, refresh, exp, u.getId(), isSystemAdmin, u.isMustChangePassword());
   }
 
   protected void pushUnregisterStub(UUID sessionId) {
@@ -253,6 +253,30 @@ public class IdentityService {
     audit.append(s.getUserId(), "auth.logout", "user_session", s.getId(), "ALLOWED", null, "{}");
     // F4: logout kills realtime streams + push registrations of the session.
     publish(new SessionRevokedEvent(s.getId(), s.getUserId(), "REVOKED_LOGOUT"));
+  }
+
+  /**
+   * Revoke every active session of a user (used when account is locked).
+   * Bound refresh tokens are also revoked so they cannot mint new sessions.
+   */
+  @Transactional
+  public void revokeAllSessions(UUID userId) {
+    List<UserSession> activeSessions =
+        sessions.findByUserIdAndActiveTrue(userId);
+    for (UserSession s : activeSessions) {
+      s.setActive(false);
+      s.setStatus("REVOKED_ADMIN");
+      sessions.save(s);
+      for (UserRefreshToken rt : refreshTokens.findBySessionId(s.getId())) {
+        if (!rt.isRevoked()) {
+          rt.setRevoked(true);
+          refreshTokens.save(rt);
+        }
+      }
+      audit.append(userId, "auth.session.revoked", "user_session", s.getId(),
+          "ALLOWED", "ACCOUNT_LOCKED", "{}");
+      publish(new SessionRevokedEvent(s.getId(), userId, "REVOKED_ADMIN"));
+    }
   }
 
   /**
@@ -344,7 +368,7 @@ public class IdentityService {
     refreshTokens.save(rt2);
     audit.append(u.getId(), "auth.refresh", "user_session", s.getId(), "ALLOWED", null, "{}");
     boolean isSystemAdmin = grants != null && grants.isSystemAdmin(u.getId());
-    return new LoginResult(access, refresh2, exp, u.getId(), isSystemAdmin);
+    return new LoginResult(access, refresh2, exp, u.getId(), isSystemAdmin, u.isMustChangePassword());
   }
 
   @Transactional

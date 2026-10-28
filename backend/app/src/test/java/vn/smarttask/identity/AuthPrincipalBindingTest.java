@@ -56,7 +56,7 @@ class AuthPrincipalBindingTest {
         OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(5));
     when(identity.issueReauthTicket(eq(user), eq("sensitive"), any())).thenReturn(t);
 
-    var res = new AuthController(identity, new GrantService(audit), users)
+    var res = new AuthController(identity, new GrantService(audit), users, audit)
         .reauth(Map.of("action", "sensitive"));
     assertEquals(200, res.getStatusCode().value());
     verify(identity).issueReauthTicket(eq(user), eq("sensitive"), any());
@@ -64,7 +64,7 @@ class AuthPrincipalBindingTest {
 
   @Test
   void reauthWithoutAuthenticationIs401() {
-    assertThrows(AppException.class, () -> new AuthController(identity, new GrantService(audit), users)
+    assertThrows(AppException.class, () -> new AuthController(identity, new GrantService(audit), users, audit)
         .reauth(Map.of("action", "sensitive")));
   }
 
@@ -74,7 +74,7 @@ class AuthPrincipalBindingTest {
     loginAs(approver);
 
     AppException ex = assertThrows(AppException.class,
-        () -> new AuthController(identity, new GrantService(audit), users)
+        () -> new AuthController(identity, new GrantService(audit), users, audit)
             .approve(new AuthController.ApproveRequest(target, true)));
     assertEquals(403, ex.getHttpStatus().value());
     assertEquals("FORBIDDEN", ex.getCode());
@@ -88,7 +88,7 @@ class AuthPrincipalBindingTest {
     loginAs(admin);
 
     AppException ex = assertThrows(AppException.class,
-        () -> new AuthController(identity, new GrantService(audit), users)
+        () -> new AuthController(identity, new GrantService(audit), users, audit)
             .createByAdmin(new AuthController.CreateUserRequest("u", "u@x.io", "pw", "U")));
     assertEquals(403, ex.getHttpStatus().value());
   }

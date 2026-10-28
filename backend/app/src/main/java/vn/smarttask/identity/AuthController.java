@@ -10,6 +10,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import vn.smarttask.common.ApiResult;
 import vn.smarttask.common.AppException;
+import vn.smarttask.common.service.AuditService;
 import vn.smarttask.identity.repo.AppUserRepository;
 import vn.smarttask.identity.service.IdentityService;
 import vn.smarttask.security.CurrentActor;
@@ -21,12 +22,14 @@ public class AuthController {
   private final IdentityService identity;
   private final GrantService grants;
   private final AppUserRepository users;
+  private final AuditService audit;
 
   public AuthController(IdentityService identity, GrantService grants,
-      AppUserRepository users) {
+      AppUserRepository users, AuditService audit) {
     this.identity = identity;
     this.grants = grants;
     this.users = users;
+    this.audit = audit;
   }
 
   public record LoginRequest(@JsonProperty("username") @NotBlank String username,
@@ -41,7 +44,8 @@ public class AuthController {
       @JsonProperty("refresh_token") String refreshToken,
       @JsonProperty("expires_at") OffsetDateTime expiresAt,
       @JsonProperty("user_id") UUID userId,
-      @JsonProperty("role") String role) {}
+      @JsonProperty("role") String role,
+      @JsonProperty("must_change_password") boolean mustChangePassword) {}
   public record ApproveRequest(@JsonProperty("target_id") UUID targetId,
       @JsonProperty("approve") boolean approve) {}
   public record CreateUserRequest(@JsonProperty("username") @NotBlank String username,
@@ -60,7 +64,8 @@ public class AuthController {
     var r = identity.login(req.username(), req.password(), req.deviceLabel(), req.clientType());
     String role = r.isSystemAdmin() ? "SYSTEM_ADMIN" : "USER";
     return ResponseEntity.ok(ApiResult.ok(
-        new TokenData(r.accessToken(), r.refreshToken(), r.expiresAt(), r.userId(), role),
+        new TokenData(r.accessToken(), r.refreshToken(), r.expiresAt(), r.userId(), role,
+            r.mustChangePassword()),
         "auth.login.success"));
   }
 
@@ -75,23 +80,28 @@ public class AuthController {
     var r = identity.refresh(body.get("refresh_token"));
     String role = r.isSystemAdmin() ? "SYSTEM_ADMIN" : "USER";
     return ResponseEntity.ok(ApiResult.ok(
-        new TokenData(r.accessToken(), r.refreshToken(), r.expiresAt(), r.userId(), role),
+        new TokenData(r.accessToken(), r.refreshToken(), r.expiresAt(), r.userId(), role,
+            r.mustChangePassword()),
         "auth.refresh.success"));
   }
 
   /** EP-024: look up an ACTIVE user by username for inviting to a project.
-   *  Returns only id, username, display_name — never email or other private data. */
+   *  Requires authentication. Returns only id, username, display_name — never email or
+   *  other private data. Missing/inactive user -> 404 (anti-enumeration).
+   */
   public record LookupResponse(UUID id, String username, String displayName) {}
 
   @GetMapping("/users/lookup")
   public ResponseEntity<ApiResult<LookupResponse>> lookup(
       @RequestParam(required = false, name = "username") String username) {
+    UUID actor = CurrentActor.userId();
     if (username == null || username.isBlank()) {
       throw AppException.badRequest("USERNAME_REQUIRED", "username required");
     }
     var u = users.findByUsernameIgnoreCase(username.trim())
         .filter(appUser -> "ACTIVE".equals(appUser.getStatus()) && appUser.isActive())
         .orElseThrow(() -> AppException.notFound("User not found"));
+    audit.append(actor, "auth.lookup", "app_user", u.getId(), "ALLOWED", null, "{}");
     return ResponseEntity.ok(ApiResult.ok(
         new LookupResponse(u.getId(), u.getUsername(), u.getDisplayName()),
         "auth.lookup.success"));

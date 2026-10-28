@@ -17,6 +17,7 @@ import Notifications from "./pages/Notifications";
 import Reports from "./pages/Reports";
 import Admin from "./pages/Admin";
 import Ai from "./pages/Ai";
+import ChangePassword from "./pages/ChangePassword";
 import { ENABLE_AI } from "./config";
 import { RealtimeProvider } from "./realtime/RealtimeContext";
 
@@ -43,6 +44,7 @@ export default function App() {
                     <Route path="/calendar" element={<Calendar />} />
                     <Route path="/notifications" element={<Notifications />} />
                     <Route path="/reports" element={<Reports />} />
+                    <Route path="/change-password" element={<ChangePassword />} />
                     <Route path="/ai" element={ENABLE_AI ? <Ai /> : <Navigate to="/tasks" replace />} />
                     <Route path="/admin" element={<RequireAdmin><Admin /></RequireAdmin>} />
                     <Route path="*" element={<Navigate to="/dashboard" replace />} />

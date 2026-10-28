@@ -9,6 +9,8 @@ interface Account {
   username?: string;
   email?: string;
   status?: string;
+  locked?: boolean;
+  locked_until?: string | null;
 }
 
 interface Setting {
@@ -113,6 +115,47 @@ export default function Admin() {
     }
   }
 
+  async function lockAccount(id: string, lockedUntilMinutes?: number) {
+    try {
+      await apiFetch(`/accounts/${id}/lock`, {
+        ...mutationOpts({ idempotencyKey: newIdempotencyKey() }),
+        method: "POST",
+        body: lockedUntilMinutes ? { locked_until_minutes: lockedUntilMinutes } : {},
+      });
+      setNotice(t("admin.locked"));
+      setAccounts(await fetchAccounts());
+    } catch (e: any) {
+      setErr(e?.uiMessage ?? t("error.generic"));
+    }
+  }
+
+  async function unlockAccount(id: string) {
+    try {
+      await apiFetch(`/accounts/${id}/unlock`, {
+        ...mutationOpts({ idempotencyKey: newIdempotencyKey() }),
+        method: "POST",
+      });
+      setNotice(t("admin.unlocked"));
+      setAccounts(await fetchAccounts());
+    } catch (e: any) {
+      setErr(e?.uiMessage ?? t("error.generic"));
+    }
+  }
+
+  async function resetPassword(id: string) {
+    if (!window.confirm(t("admin.confirm_reset_password"))) return;
+    try {
+      await apiFetch(`/accounts/${id}/reset-password`, {
+        ...mutationOpts({ idempotencyKey: newIdempotencyKey() }),
+        method: "POST",
+      });
+      setNotice(t("admin.password_reset"));
+      setAccounts(await fetchAccounts());
+    } catch (e: any) {
+      setErr(e?.uiMessage ?? t("error.generic"));
+    }
+  }
+
   return (
     <div className="mx-auto max-w-6xl">
       <h1 className="page-title">{t("nav.admin")}</h1>
@@ -136,7 +179,21 @@ export default function Admin() {
                   <td>{a.email ?? "—"}</td>
                   <td>{a.status ?? "—"}</td>
                   <td>
-                    <div className="flex justify-end gap-2">
+                    <div className="flex justify-end gap-1">
+                      {a.locked ? (
+                        <Button variant="secondary" size="sm" onClick={() => unlockAccount(aid)}>
+                          {t("admin.unlock")}
+                        </Button>
+                      ) : (
+                        <>
+                          <Button variant="warning" size="sm" onClick={() => lockAccount(aid)}>
+                            {t("admin.lock")}
+                          </Button>
+                          <Button variant="danger" size="sm" onClick={() => resetPassword(aid)}>
+                            {t("admin.reset_password")}
+                          </Button>
+                        </>
+                      )}
                       <Button variant="success" size="sm" onClick={() => setPending({ id: aid, approve: true })}>
                         {t("admin.approve")}
                       </Button>

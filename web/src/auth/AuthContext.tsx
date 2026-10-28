@@ -14,6 +14,7 @@ export interface SessionUser {
   id: string;
   email: string;
   role: string;
+  mustChangePassword: boolean;
 }
 
 interface PendingReauth {
@@ -73,10 +74,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Backend LoginRequest dùng key `username` (tự resolve username-hoặc-email
     // phía server) + client_type. Giữ tương thích: gửi username, không gửi key lạ.
     const res = await apiFetch<{
-      data?: { access_token?: string; refresh_token?: string; user_id?: string; role?: string };
+      data?: { access_token?: string; refresh_token?: string; user_id?: string; role?: string; must_change_password?: boolean };
       access_token?: string;
       refresh_token?: string;
       role?: string;
+      must_change_password?: boolean;
       session_replaced?: boolean;
     }>("/auth/login", {
       method: "POST",
@@ -88,10 +90,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!accessToken) throw new Error("Missing access token");
     const refreshToken = data?.refresh_token ?? res.refresh_token ?? null;
     const role = data?.role ?? res.role ?? "USER";
+    const mustChangePassword = data?.must_change_password ?? res.must_change_password ?? false;
     // Lưu cả refresh token: access token hết hạn sau 1 ngày, refresh 7 ngày.
     setTokens(accessToken, refreshToken);
     setTok(accessToken);
-    setUser({ id: data?.user_id ?? "", email, role });
+    setUser({ id: data?.user_id ?? "", email, role, mustChangePassword });
     if (res.session_replaced) {
       setSessionNotice("auth.session_replaced");
     }

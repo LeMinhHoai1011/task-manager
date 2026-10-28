@@ -51,7 +51,9 @@ public class AccountController {
             "user_id", u.getId().toString(),
             "username", u.getUsername() == null ? "" : u.getUsername(),
             "email", u.getEmail() == null ? "" : u.getEmail(),
-            "status", u.getStatus() == null ? "" : u.getStatus()))
+            "status", u.getStatus() == null ? "" : u.getStatus(),
+            "locked", u.isLocked(),
+            "locked_until", u.getLockedUntil() == null ? null : u.getLockedUntil().toString()))
         .toList();
     return ResponseEntity.ok(ApiResult.ok(items, "account.list.success"));
   }
@@ -78,7 +80,7 @@ public class AccountController {
         "account.reject.success"));
   }
 
-  /** EP-026: lock an account (admin only). */
+  /** EP-026: lock an account (admin only). Khóa tài khoản và thu hồi mọi phiên đang hoạt động. */
   public record LockRequest(@JsonProperty("locked_until_minutes") Long lockedUntilMinutes) {}
 
   @PostMapping("/{id}/lock")
@@ -97,6 +99,9 @@ public class AccountController {
       u.setLockedUntil(null);
     }
     users.save(u);
+    // Thu hồi mọi session của user bị khóa: session authentication filter sẽ từ chối
+    // vì user không còn active hoặc locked. Revoke session active duy nhất nếu có.
+    identity.revokeAllSessions(id);
     auditAppend(actor, "account.lock", id, "ALLOWED");
     return ResponseEntity.ok(ApiResult.ok(Map.of("user_id", u.getId().toString(),
         "locked", u.isLocked(), "locked_until", u.getLockedUntil()),
@@ -119,16 +124,20 @@ public class AccountController {
         "locked", u.isLocked()), "account.unlock.success"));
   }
 
-  /** EP-028: admin resets password to a temporary one (returned once). */
+  /** EP-028: admin resets password to a temporary one.
+   *  Temporary password is generated server-side and must be delivered through a
+   *  separate out-of-band channel; it is NOT returned in the response to avoid
+   *  being logged by HTTP access logs. User is forced to change it at next login.
+   */
   @PostMapping("/{id}/reset-password")
   @RequiresPermission("account:write")
   public ResponseEntity<ApiResult<Object>> resetPassword(@PathVariable UUID id) {
     UUID actor = CurrentActor.userId();
     requireApproveGrant(actor, "account.reset_password", id);
-    String temp = identity.resetPasswordTemp(actor, id);
+    identity.resetPasswordTemp(actor, id);
     auditAppend(actor, "account.reset_password", id, "ALLOWED");
     return ResponseEntity.ok(ApiResult.ok(Map.of("user_id", id.toString(),
-        "temporary_password", temp), "account.reset_password.success"));
+        "must_change_password", true), "account.reset_password.success"));
   }
 
   private void auditAppend(UUID actor, String action, UUID target, String outcome) {
