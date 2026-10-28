@@ -80,7 +80,8 @@ public class IdentityService {
     if (events != null) events.publishEvent(event);
   }
 
-  public record LoginResult(String accessToken, String refreshToken, OffsetDateTime expiresAt, UUID userId) {}
+  public record LoginResult(String accessToken, String refreshToken, OffsetDateTime expiresAt,
+      UUID userId, boolean isSystemAdmin) {}
 
   private static String opaqueToken() {
     return UuidV7.generate().toString().replace("-", "");
@@ -221,7 +222,8 @@ public class IdentityService {
     refreshTokens.save(rt);
     audit.append(u.getId(), "auth.login", "user_session", s.getId(), "ALLOWED", null, "{}");
     outbox.emit("user_session", s.getId(), "security_event.login", "{}");
-    return new LoginResult(access, refresh, exp, u.getId());
+    boolean isSystemAdmin = grants.isSystemAdmin(u.getId());
+    return new LoginResult(access, refresh, exp, u.getId(), isSystemAdmin);
   }
 
   protected void pushUnregisterStub(UUID sessionId) {
@@ -337,7 +339,8 @@ public class IdentityService {
     rt2.setRotatedFromId(rt.getId());
     refreshTokens.save(rt2);
     audit.append(u.getId(), "auth.refresh", "user_session", s.getId(), "ALLOWED", null, "{}");
-    return new LoginResult(access, refresh2, exp, u.getId());
+    boolean isSystemAdmin = grants.isSystemAdmin(u.getId());
+    return new LoginResult(access, refresh2, exp, u.getId(), isSystemAdmin);
   }
 
   @Transactional

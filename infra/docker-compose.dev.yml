@@ -1,5 +1,5 @@
 # SmartTask — dev stack (Postgres + MinIO + MailHog).
-# KHONG co ollama (DEC-41 chua chot ha tang AI; tuyet doi khong chay AI o V1).
+# Khong chay Ollama o V1 (ai.enabled mac dinh = false).
 name: smarttask-dev
 
 services:

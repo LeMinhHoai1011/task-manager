@@ -36,7 +36,8 @@ public class AuthController {
   public record TokenData(@JsonProperty("access_token") String accessToken,
       @JsonProperty("refresh_token") String refreshToken,
       @JsonProperty("expires_at") OffsetDateTime expiresAt,
-      @JsonProperty("user_id") UUID userId) {}
+      @JsonProperty("user_id") UUID userId,
+      @JsonProperty("role") String role) {}
   public record ApproveRequest(@JsonProperty("target_id") UUID targetId,
       @JsonProperty("approve") boolean approve) {}
   public record CreateUserRequest(@JsonProperty("username") @NotBlank String username,
@@ -53,8 +54,9 @@ public class AuthController {
   @PostMapping("/login")
   public ResponseEntity<ApiResult<TokenData>> login(@Valid @RequestBody LoginRequest req) {
     var r = identity.login(req.username(), req.password(), req.deviceLabel(), req.clientType());
+    String role = r.isSystemAdmin() ? "SYSTEM_ADMIN" : "USER";
     return ResponseEntity.ok(ApiResult.ok(
-        new TokenData(r.accessToken(), r.refreshToken(), r.expiresAt(), r.userId()),
+        new TokenData(r.accessToken(), r.refreshToken(), r.expiresAt(), r.userId(), role),
         "auth.login.success"));
   }
 
@@ -67,8 +69,9 @@ public class AuthController {
   @PostMapping("/refresh")
   public ResponseEntity<ApiResult<TokenData>> refresh(@RequestBody Map<String, String> body) {
     var r = identity.refresh(body.get("refresh_token"));
+    String role = r.isSystemAdmin() ? "SYSTEM_ADMIN" : "USER";
     return ResponseEntity.ok(ApiResult.ok(
-        new TokenData(r.accessToken(), r.refreshToken(), r.expiresAt(), r.userId()),
+        new TokenData(r.accessToken(), r.refreshToken(), r.expiresAt(), r.userId(), role),
         "auth.refresh.success"));
   }
 

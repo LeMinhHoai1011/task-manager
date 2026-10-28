@@ -256,18 +256,10 @@ Bảng đề xuất (Y = cho phép,  = chặn):
 
 ---
 
-#### DEC-41 — Hạ tầng Ollama cho V1?
-*Nguồn: AUD-41 | Chặn: PH-5, và **có thể thay đổi phạm vi V1** | Baseline: Nhóm 07, NFR-08/11/12/21*
+#### DEC-41 — (Đã loại bỏ)
+*Nguồn: AUD-41 | Chặn: PH-5 | Baseline: Nhóm 07, NFR-08/11/12/21*
 
-FACT: máy dev hiện tại có GPU Intel Iris Xe ~1 GB VRAM, 15.7 GB RAM, **Ollama chưa cài**.
-
-| Phương án | Nội dung | Hệ quả |
-|---|---|---|
-| **P-A (khuyến nghị)** | Một **máy chủ GPU trong LAN** chạy Ollama; Backend gọi qua LAN (đúng Nhóm 07 "Local/LAN"). Dev dùng **mock Ollama** | PH-5 làm được đầy đủ; cần bạn cấp máy chủ GPU |
-| P-B | Chấp nhận **CPU-only, model ≤3B**, concurrency 1, timeout 120s, context ≤2k token | Chức năng đúng + privacy đúng, nhưng **độ trễ có thể vài chục giây đến vài phút**; phải ghi rõ trong tài liệu nghiệm thu là không cam kết độ trễ AI |
-| P-C | **Hoãn Nhóm 07** sang sau V1 | Đây là **thay đổi phạm vi V1 đã FROZEN** → tôi **không** tự quyết; cần bạn phê duyệt bằng văn bản |
-
-**Cần bạn trả lời:** có máy chủ GPU trong LAN không? Nếu không, chọn P-B hay P-C?
+Quyết định hạ tầng Ollama đã được loại bỏ khỏi đăng ký DEC. AI (Nhóm 07) giữ nguyên theo đặc tả FROZEN: chỉ chạy qua Backend, chỉ đề xuất, không tự thay đổi nghiệp vụ; Ollama không bắt buộc cho V1 core, `ai.enabled` mặc định `false` cho đến khi có hạ tầng Ollama thật.
 
 ---
 

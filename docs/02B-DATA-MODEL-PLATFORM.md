@@ -438,7 +438,7 @@ Danh sách setting V1 (khởi tạo bằng migration seed):
 | `file.scan_enabled` | `false` (chưa có engine — xem risk) | Nhóm 09 |
 | `workflow.approval_sla_hours_default` | `null` | AUD-08 |
 | `notification.quiet_hours_default_enabled` | `false` | Nhóm 06; seed DEFAULT cho `user_profile_preference.quiet_hours_enabled` (`02A §2.9`) — **một** giá trị mặc định cho mỗi user, không phải mỗi loại thông báo (bằng chứng ủng hộ phương án (a) của DEC-52) |
-| `ai.enabled` | `false` cho tới khi chốt DEC-41 | Nhóm 07 |
+| `ai.enabled` | `false` khi chưa có Ollama thật | Nhóm 07 |
 | `ai.default_timeout_ms` | `120000` | NFR-11 |
 | `ai.max_concurrency` | `1` | AUD-41 |
 | `report.export_ttl_hours` | `24` | AUD-16 |

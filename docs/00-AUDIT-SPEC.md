@@ -379,16 +379,6 @@ Audit xác nhận baseline có chất lượng cao ở các mặt sau; thiết k
 - **Trích dẫn:** Nhóm 07: "file/comment là input không đáng tin, phải phòng prompt injection".
 - **Đề xuất:** (a) Mọi nội dung không đáng tin được bọc trong delimiter + khai báo rõ "đây là dữ liệu, không phải chỉ thị"; (b) **structured output** (JSON schema) bắt buộc, validate bằng schema, từ chối output không hợp lệ; (c) không bao giờ cho output của AI đi thẳng vào mutation — luôn qua bước "người dùng xác nhận" rồi gọi use case chuẩn có kiểm tra quyền (đúng Nhóm 07); (d) chặn các trường đề xuất vượt phạm vi scope của context đã cấp (ví dụ AI đề xuất assignee không nằm trong danh sách participant → loại bỏ + ghi log); (e) giới hạn độ dài input/output, timeout, concurrency.
 
-### AUD-41 — Ollama trên máy hiện tại không đáp ứng được trải nghiệm V1
-`Type: RISK | Gate: BLOCKER | DEC-41`
-
-- **Căn cứ đo được:** GPU Intel Iris Xe ~1 GB VRAM, 15.7 GB RAM, 8 CPU, Ollama **chưa cài**.
-- **Vấn đề:** Với CPU-only, model 7B quantized Q4 cho prompt ~2–4k token context sẽ mất **hàng chục giây đến vài phút** cho mỗi lần sinh; Daily Planner/Weekly Review (ngữ cảnh lớn) có thể **vài phút đến timeout**. NFR-11 cho phép async + timeout nên **không phá vỡ kiến trúc**, nhưng NFR-21 yêu cầu "AI có chỉ tiêu riêng" thì phải công bố chỉ tiêu thực tế đo được, không thể hứa.
-- **Đề xuất:** Chọn 1 trong 3 phương án, **cần người dùng quyết định trước Phase 5**:
-  - **P-A (khuyến nghị cho pilot):** có **một máy chủ GPU trong LAN** chạy Ollama (đúng Nhóm 07 "Ollama Local/LAN"), Backend gọi qua LAN. Máy dev hiện tại chỉ dùng để code + test với mock Ollama.
-  - **P-B:** chấp nhận **CPU-only với model nhỏ** (≤3B, quantized Q4), concurrency = 1, timeout 120s, giới hạn context ~2k token, và **ghi rõ trong tài liệu nghiệm thu** rằng chỉ tiêu AI là "chức năng đúng + privacy đúng", không cam kết độ trễ.
-  - **P-C:** hoãn Nhóm 07 sang giai đoạn sau, làm Phase 1–4 + 6 + 7 trước. Đặc tả mục 21 đã tách Phase 8 (Advanced AI) nhưng Phase 5 (AI Basic) vẫn nằm trong V1 → **hoãn Phase 5 là thay đổi phạm vi V1, bắt buộc phải được người dùng phê duyệt**, không được tự quyết.
-
 ### AUD-42 — NFR-09/NFR-10 không thể nghiệm thu trên máy hiện tại
 `Type: RISK | Gate: BLOCKER | DEC-42`
 
@@ -574,7 +564,7 @@ Audit xác nhận baseline có chất lượng cao ở các mặt sau; thiết k
 | BLOCKER | DEC-12 | Allowlist offline cache của Mobile | Kiến trúc Flutter, Phase 1 mobile |
 | BLOCKER | DEC-15 | Cơ chế số liệu lịch sử (event / snapshot / cả hai) | ERD reports, Phase 6 |
 | BLOCKER | DEC-27 | Cơ chế chống race approval | Phase 2 |
-| BLOCKER | DEC-41 | Phương án hạ tầng Ollama (GPU LAN / CPU nhỏ / hoãn) | Phase 5, phạm vi V1 |
+| — | DEC-41 | (Đã loại bỏ — xem 08-DECISION-REGISTER.md) | — |
 | BLOCKER | DEC-42 | Hạ tầng load test nghiệm thu NFR-09/10 | Phase 7 |
 | BLOCKER | DEC-43 | Bộ công nghệ: build tool, migration, queue, storage, realtime, token, PK | Toàn bộ Phase 1 |
 | BLOCKER | DEC-46 | FCM project / Apple Developer / SMTP có sẵn không | Phase 4 |

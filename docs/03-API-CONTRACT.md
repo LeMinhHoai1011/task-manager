@@ -210,7 +210,7 @@ Cột "Nguồn" ghi nơi mã lỗi đã xuất hiện. Mã đánh dấu **(mới
 | `UPLOAD_SESSION_STATE_INVALID` | 409 | Commit khi `upload_session.status` không thuộc {`UPLOADING`,`SCAN_PENDING`} | (mới đề xuất; 05 §7) |
 | `ATTACHMENT_NOT_AVAILABLE` | 409 | Download/preview khi `attachment.status <> 'AVAILABLE'` | (mới đề xuất; 02A §7.1) |
 | `STREAM_TICKET_INVALID` | 403 | `StreamTicket` đã dùng, hết TTL ≤ 30s, hoặc quyền bị thu hồi giữa chừng | RBAC FL-02, ARCH-07, RACE-09 |
-| `AI_DISABLED` | 409 | `system_setting.ai.enabled = false` (mặc định cho tới khi chốt DEC-41) | 02B §7.1, Nhóm 07 |
+| `AI_DISABLED` | 409 | `system_setting.ai.enabled = false` (mặc định khi chưa có Ollama thật) | 02B §7.1, Nhóm 07 |
 | `AI_JOB_NOT_FOUND` | 404 | `ai_job` không tồn tại **hoặc** `principal_user_id` khác actor (AI-02: người khác, kể cả SA, không đọc được) | RBAC AI-02 |
 | `AI_TIMEOUT` | 504 | `ai_job.status = 'FAILED_TIMEOUT'`; kèm `retry_after_seconds` | 05 §8, NFR-11 |
 | `AI_OLLAMA_UNAVAILABLE` | 503 | `ai_job.status = 'FAILED_OLLAMA'`; core nghiệp vụ **không** bị ảnh hưởng | 05 §8, NFR-12 |
@@ -718,7 +718,7 @@ Nguyên tắc bắt buộc cho toàn bộ nhóm:
 4. Quyền đọc ngữ cảnh được **kiểm tra lại tại thời điểm build context** và **kiểm tra lại lần nữa trước khi giao kết quả** (`ai_job.reauthorized_at`, `reauthorize_result`). Mất quyền giữa chừng → `CANCELLED_REVOKED` và toàn bộ suggestion liên quan bị `REDACTED` (AUD-13, AUD-39).
 5. `ai_job` và `ai_suggestion` là dữ liệu **riêng của `principal_user_id`**. Người khác — **kể cả SA** — nhận `404`, không phải `403` (AI-02).
 6. Prompt/completion thô không nằm trong response và không nằm trong DB nghiệp vụ; `ai_interaction.content_ref` trỏ tới object private, retention 90 ngày. Response chỉ có `token_count`, `latency_ms`, `model_name`, `config_key`.
-7. Khi `ai.enabled=false` (seed 02B §7.1, chờ DEC-41): endpoint ghi (`EP-194`, `EP-200`, `EP-201`) trả `409 AI_DISABLED`; endpoint đọc vẫn hoạt động để trả lịch sử cũ (đã redact nếu mất quyền).
+7. Khi `ai.enabled=false` (seed 02B §7.1, chưa có Ollama thật): endpoint ghi (`EP-194`, `EP-200`, `EP-201`) trả `409 AI_DISABLED`; endpoint đọc vẫn hoạt động để trả lịch sử cũ (đã redact nếu mất quyền).
 8. `AI_JOB_*_COUNT` trong dashboard chỉ là số liệu vận hành; không có metric nào suy ra năng suất cá nhân từ AI (R-07 không tồn tại).
 
 | ID | Method | Path | Mô tả | Mã quyền | State gate | Idem | Reauth | Audit action | Error riêng |
@@ -1546,7 +1546,7 @@ Các quyết định mở khác có ảnh hưởng hẹp hơn:
 | DEC-35 (định nghĩa "ACTIVE hợp lệ") | `isValidActiveActor` ở P2, mọi cột `State gate` |
 | DEC-36 (quyền đọc audit theo scope) | `EP-224`..`EP-226`, `AuditEventResponse.grant_path` |
 | DEC-40 (chống prompt injection) | `EP-194` (`hint` ≤ 500 ký tự, không nhận chỉ dẫn hệ thống), `EP-206` |
-| DEC-41 (hạ tầng Ollama) | `ai.enabled=false` ở seed → `EP-194`, `EP-200`, `EP-201` trả `409 AI_DISABLED` |
+| DEC-41 (đã loại bỏ) | `ai.enabled=false` ở seed → `EP-194`, `EP-200`, `EP-201` trả `409 AI_DISABLED` khi chưa có Ollama thật |
 | DEC-47 (ràng buộc cấm AI mutate) | toàn bộ §5.13, `AiSuggestionResponse.next_action_endpoint` |
 | DEC-48 (mô hình uỷ quyền cho background job) | `EP-227`..`EP-231`, `JOB_PRINCIPAL_PERMISSION_REVOKED` |
 | DEC-49 (idempotency outbox) | §4.2, `EP-188`, `EP-194` |
