@@ -22,6 +22,7 @@ import vn.smarttask.identity.entity.*;
 import vn.smarttask.identity.event.SessionRevokedEvent;
 import vn.smarttask.identity.event.UserAccessRevokedEvent;
 import vn.smarttask.identity.repo.*;
+import vn.smarttask.security.GrantService;
 import vn.smarttask.workspace.entity.Workspace;
 import vn.smarttask.workspace.entity.WorkspaceMembership;
 import vn.smarttask.workspace.repo.WorkspaceMembershipRepository;
@@ -51,6 +52,7 @@ public class IdentityService {
   private final ApplicationEventPublisher events;
 
   private final boolean selfRegistration;
+  private final GrantService grants;
 
   /** Legacy constructor (offline unit wiring): no revocation fan-out. */
   public IdentityService(AppUserRepository users, UserSessionRepository sessions,
@@ -59,7 +61,7 @@ public class IdentityService {
       WorkspaceMembershipRepository wsMembers, AuditService audit, OutboxService outbox,
       @Value("${smarttask.self-registration:true}") boolean selfRegistration) {
     this(users, sessions, refreshTokens, reauthTickets, recoveryCodes, workspaces, wsMembers,
-        audit, outbox, selfRegistration, null);
+        audit, outbox, selfRegistration, null, null);
   }
 
   @Autowired
@@ -68,12 +70,13 @@ public class IdentityService {
       RecoveryCodeRepository recoveryCodes, WorkspaceRepository workspaces,
       WorkspaceMembershipRepository wsMembers, AuditService audit, OutboxService outbox,
       @Value("${smarttask.self-registration:true}") boolean selfRegistration,
-      ApplicationEventPublisher events) {
+      ApplicationEventPublisher events, GrantService grants) {
     this.users = users; this.sessions = sessions; this.refreshTokens = refreshTokens;
     this.reauthTickets = reauthTickets; this.recoveryCodes = recoveryCodes;
     this.workspaces = workspaces; this.wsMembers = wsMembers;
     this.audit = audit; this.outbox = outbox; this.selfRegistration = selfRegistration;
     this.events = events;
+    this.grants = grants;
   }
 
   private void publish(Object event) {
@@ -222,7 +225,7 @@ public class IdentityService {
     refreshTokens.save(rt);
     audit.append(u.getId(), "auth.login", "user_session", s.getId(), "ALLOWED", null, "{}");
     outbox.emit("user_session", s.getId(), "security_event.login", "{}");
-    boolean isSystemAdmin = grants.isSystemAdmin(u.getId());
+    boolean isSystemAdmin = grants != null && grants.isSystemAdmin(u.getId());
     return new LoginResult(access, refresh, exp, u.getId(), isSystemAdmin);
   }
 
@@ -339,7 +342,7 @@ public class IdentityService {
     rt2.setRotatedFromId(rt.getId());
     refreshTokens.save(rt2);
     audit.append(u.getId(), "auth.refresh", "user_session", s.getId(), "ALLOWED", null, "{}");
-    boolean isSystemAdmin = grants.isSystemAdmin(u.getId());
+    boolean isSystemAdmin = grants != null && grants.isSystemAdmin(u.getId());
     return new LoginResult(access, refresh2, exp, u.getId(), isSystemAdmin);
   }
 

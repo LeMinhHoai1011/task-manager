@@ -58,7 +58,7 @@ class SessionRevokeTest {
 
   private IdentityService serviceWithEvents() {
     return new IdentityService(users, sessions, refreshTokens, reauthTickets, recoveryCodes,
-        workspaces, wsMembers, audit, outbox, true, events);
+        workspaces, wsMembers, audit, outbox, true, events, null);
   }
 
   private static UserSession activeSession(UUID sid, UUID user) {
