@@ -211,7 +211,8 @@ public class TaskController {
       @RequestHeader(value = "Idempotency-Key", required = false) String idem) {
     requireIdem(idem);
     UUID actor = CurrentActor.userId();
-    policy.requireTaskWrite(actor, id);
+    // Content update (title/description) requires MANAGER — MEMBER cannot change task content.
+    policy.requireTaskManagerWrite(actor, id, "task.update", "task:write");
     Task t = service.updateContent(actor, id,
         (String) body.get("title"), (String) body.get("description"), ifMatch(ifMatch));
     return ResponseEntity.ok(ApiResult.ok(dto(t), "task.update.success"));
@@ -238,7 +239,8 @@ public class TaskController {
       @RequestHeader(value = "Idempotency-Key", required = false) String idem) {
     requireIdem(idem);
     UUID actor = CurrentActor.userId();
-    policy.requireTaskWrite(actor, id);
+    // Assign requires MANAGER: MEMBER must not change who is assigned to a task.
+    policy.requireTaskManagerWrite(actor, id, "task.assign", "task:write");
     service.assign(actor, id, UUID.fromString((String) body.get("user_id")), ifMatch(ifMatch));
     return ResponseEntity.ok(ApiResult.ok(null, "task.assign.success"));
   }
@@ -302,7 +304,8 @@ public class TaskController {
       @RequestHeader(value = "Idempotency-Key", required = false) String idem) {
     requireIdem(idem);
     UUID actor = CurrentActor.userId();
-    policy.requireTaskWrite(actor, id);
+    // Deadline change requires MANAGER — MEMBER cannot change task deadline.
+    policy.requireTaskManagerWrite(actor, id, "task.deadline.set", "task:write");
     LocalDate d = body.get("due_date") == null ? null : LocalDate.parse((String) body.get("due_date"));
     OffsetDateTime inst = body.get("due_at") == null ? null : OffsetDateTime.parse((String) body.get("due_at"));
     Task t = service.setDeadline(actor, id, d, inst, (String) body.get("due_timezone"), ifMatch(ifMatch));

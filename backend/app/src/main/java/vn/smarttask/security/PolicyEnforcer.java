@@ -133,6 +133,27 @@ public class PolicyEnforcer {
         scope.hasRead(), scope.canWrite(), scope.canWrite(), scope.state());
   }
 
+  /**
+   * MANAGER-level task write: requires the actor to be a project MANAGER/OWNER/ADMIN.
+   * Used for assign/unassign (changing task assignment) and other management-only operations.
+   */
+  public void requireTaskManagerWrite(UUID actor, UUID taskId, String action, String permission) {
+    var t = tasks.findById(taskId)
+        .orElseThrow(() -> AppException.notFound("Task not found"));
+    var p = projects.findById(t.getProjectId())
+        .orElseThrow(() -> AppException.notFound("Task not found"));
+    if ("DELETED".equals(p.getStatus())) {
+      audit.appendDenied(actor, action, "task", taskId, "DENIED_NOT_FOUND");
+      throw AppException.notFound("Task not found");
+    }
+    var m = projectMembers.findMembership(t.getProjectId(), actor);
+    boolean isWriter = m.map(x -> isProjectWriter(x.getRole())).orElse(false);
+    // hasRead: manager always has read. non-manager without membership: 404.
+    boolean hasRead = isWriter || m.isPresent();
+    decide(actor, taskId, "task", action, permission,
+        hasRead, isWriter, isWriter, stateOf(p));
+  }
+
   // ---------------------------------------------------------------- internals
 
   private record Scope(boolean hasRead, boolean canWrite,
@@ -147,10 +168,13 @@ public class PolicyEnforcer {
     }
     var m = projectMembers.findMembership(projectId, actor);
     boolean assigned = assignments.findByTaskIdAndUserId(taskId, actor).isPresent();
-    boolean isWriter = m.map(PolicyEnforcer::isProjectWriter).orElse(false);
-    // MANAGER/OWNER/ADMIN: doc + ghi tat ca task. MEMBER/GUEST: chi doc/ghi task duoc giao.
+    boolean isWriter = m.map(x -> isProjectWriter(x.getRole())).orElse(false);
+    // MANAGER/OWNER/ADMIN: doc + ghi tat ca task.
+    // MEMBER (duoc giao): chi DOC task, khong duoc ghi (khong doi assignee/deadline/title).
+    // GUEST: chi doc task duoc giao, khong duoc ghi.
     boolean hasRead = isWriter || assigned;
-    boolean canWrite = isWriter || assigned;
+    // canWrite chi cho project writer (MANAGER/OWNER/ADMIN); MEMBER/GUEST khong duoc write bat ke co assigned hay khong.
+    boolean canWrite = isWriter;
     return new Scope(hasRead, canWrite, stateOf(p));
   }
 

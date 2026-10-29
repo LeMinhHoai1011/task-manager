@@ -50,17 +50,23 @@ public class CalendarController {
     UUID actor = CurrentActor.userId();
     // F2.5: actor-scoped project ids (indexed query, no full-table scan).
     java.util.List<UUID> visible = projectMembers.findActiveProjectIdsByUser(actor);
-    // MEMBER/GUEST may only see tasks assigned to them.
-    var actorMembership = visible.isEmpty() ? null
-        : projectMembers.findMembership(visible.get(0), actor).orElse(null);
-    boolean actorIsMember = actorMembership != null
-        && !"OWNER".equals(actorMembership.getRole())
-        && !"ADMIN".equals(actorMembership.getRole())
-        && !"MANAGER".equals(actorMembership.getRole());
+    // Collect set of project ids where actor is MANAGER/OWNER/ADMIN (can see all tasks).
+    // For other projects (MEMBER/GUEST), actor can only see tasks assigned to them.
+    java.util.Set<UUID> managerProjects = new java.util.HashSet<>();
+    for (UUID pid : visible) {
+      var mem = projectMembers.findMembership(pid, actor).orElse(null);
+      if (mem != null && ("OWNER".equals(mem.getRole()) || "ADMIN".equals(mem.getRole())
+          || "MANAGER".equals(mem.getRole()))) {
+        managerProjects.add(pid);
+      }
+    }
+    // actor's assigned task project ids (for MEMBER/GUEST filtering)
+    java.util.Set<UUID> assignedProjectIds = new java.util.HashSet<>(
+        tasks.findAssignedProjectIdsByUser(actor));
     LocalDate anchor = date == null ? LocalDate.now() : LocalDate.parse(date);
     var items = calendar.view(view, anchor, timezone, visible).stream()
-        .filter(d -> !actorIsMember
-            || tasks.findAssignedProjectIdsByUser(actor).contains(d.projectId()))
+        .filter(d -> managerProjects.contains(d.projectId())
+            || assignedProjectIds.contains(d.projectId()))
         .map(d -> (Object) Map.of("task_id", d.taskId().toString(),
             "project_id", d.projectId().toString(),
             "due_at", String.valueOf(d.dueAt()))).toList();
@@ -129,13 +135,24 @@ public class CalendarController {
     UUID actor = CurrentActor.userId();
     // F2.5: actor-scoped project ids + project-scoped task read.
     java.util.List<UUID> visible = projectMembers.findActiveProjectIdsByUser(actor);
-    // MEMBER/GUEST may only see tasks assigned to them.
-    var actorMembership = visible.isEmpty() ? null
-        : projectMembers.findMembership(visible.get(0), actor).orElse(null);
-    boolean actorIsMember = actorMembership != null
-        && !"OWNER".equals(actorMembership.getRole())
-        && !"ADMIN".equals(actorMembership.getRole())
-        && !"MANAGER".equals(actorMembership.getRole());
+    // Per-project manager set: MANAGER/OWNER/ADMIN see all tasks in their project.
+    java.util.Set<UUID> managerProjects = new java.util.HashSet<>();
+    for (UUID pid : visible) {
+      var mem = projectMembers.findMembership(pid, actor).orElse(null);
+      if (mem != null && ("OWNER".equals(mem.getRole()) || "ADMIN".equals(mem.getRole())
+          || "MANAGER".equals(mem.getRole()))) {
+        managerProjects.add(pid);
+      }
+    }
+    // actor's assigned task ids (for MEMBER/GUEST per-task filtering)
+    java.util.Set<UUID> assignedTaskIds = new java.util.HashSet<>();
+    if (!visible.isEmpty()) {
+      for (var t : tasks.findByProjectIdInAndDeletedAtIsNull(visible)) {
+        if (tasks.existsAssignedByTaskIdAndUserId(t.getId(), actor)) {
+          assignedTaskIds.add(t.getId());
+        }
+      }
+    }
     java.util.Set<UUID> visibleSet = new java.util.HashSet<>(visible);
     StringBuilder sb = new StringBuilder(
         "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//smarttask//EN\r\n");
@@ -144,8 +161,8 @@ public class CalendarController {
     for (var t : scoped) {
       if (t.getDeletedAt() != null || t.getDueAt() == null) continue;
       if (!visibleSet.contains(t.getProjectId())) continue;
-      if (actorIsMember
-          && !tasks.findAssignedProjectIdsByUser(actor).contains(t.getProjectId())) {
+      // MEMBER/GUEST: only include tasks assigned to them.
+      if (!managerProjects.contains(t.getProjectId()) && !assignedTaskIds.contains(t.getId())) {
         continue;
       }
       sb.append("BEGIN:VEVENT\r\n");
