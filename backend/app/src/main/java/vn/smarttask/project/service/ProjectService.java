@@ -114,16 +114,25 @@ public class ProjectService {
     requireActive(actorId);
     Project p = projects.findById(projectId).orElseThrow(() -> AppException.notFound("Project not found"));
     requireManager(projectId, actorId);
-    // target must be ACTIVE workspace member
-    var ws = wsMembers.findMembership(p.getWorkspaceId(), targetId)
+    // target must be ACTIVE account (no workspace membership required)
+    AppUser target = users.findById(targetId)
         .orElseThrow(() -> {
-          audit.appendDenied(actorId, "project.member.add", "project", projectId, "NOT_WS_MEMBER");
-          return AppException.stateConflict("NOT_WS_MEMBER", "Target must be workspace member");
+          audit.appendDenied(actorId, "project.member.add", "project", projectId, "TARGET_NOT_FOUND");
+          return AppException.notFound("Target user not found");
         });
-    // Workspace guest (WG) can only be project guest (PG)
-    if ("GUEST".equals(ws.getRole()) && !"GUEST".equals(role)) {
-      audit.appendDenied(actorId, "project.member.add", "project", projectId, "GUEST_GUARD");
-      throw AppException.forbidden("Workspace guest can only be project guest");
+    if (!target.isActive() || !"ACTIVE".equals(target.getStatus())) {
+      audit.appendDenied(actorId, "project.member.add", "project", projectId, "TARGET_NOT_ACTIVE");
+      throw AppException.stateConflict("TARGET_NOT_ACTIVE", "Target account must be ACTIVE");
+    }
+    // no duplicate membership
+    if (members.findByProjectIdAndUserId(projectId, targetId).isPresent()) {
+      audit.appendDenied(actorId, "project.member.add", "project", projectId, "ALREADY_MEMBER");
+      throw AppException.stateConflict("ALREADY_MEMBER", "Target is already a project member");
+    }
+    // cannot invite self as member with manager role escalation
+    if (actorId.equals(targetId) && "MANAGER".equals(role)) {
+      audit.appendDenied(actorId, "project.member.add", "project", projectId, "SELF_ESCALATION");
+      throw AppException.forbidden("Self promotion to MANAGER forbidden");
     }
     ProjectMembership m = new ProjectMembership(UuidV7.generate(), projectId, targetId, role);
     members.save(m);

@@ -50,8 +50,17 @@ public class CalendarController {
     UUID actor = CurrentActor.userId();
     // F2.5: actor-scoped project ids (indexed query, no full-table scan).
     java.util.List<UUID> visible = projectMembers.findActiveProjectIdsByUser(actor);
+    // MEMBER/GUEST may only see tasks assigned to them.
+    var actorMembership = visible.isEmpty() ? null
+        : projectMembers.findMembership(visible.get(0), actor).orElse(null);
+    boolean actorIsMember = actorMembership != null
+        && !"OWNER".equals(actorMembership.getRole())
+        && !"ADMIN".equals(actorMembership.getRole())
+        && !"MANAGER".equals(actorMembership.getRole());
     LocalDate anchor = date == null ? LocalDate.now() : LocalDate.parse(date);
     var items = calendar.view(view, anchor, timezone, visible).stream()
+        .filter(d -> !actorIsMember
+            || tasks.findAssignedProjectIdsByUser(actor).contains(d.projectId()))
         .map(d -> (Object) Map.of("task_id", d.taskId().toString(),
             "project_id", d.projectId().toString(),
             "due_at", String.valueOf(d.dueAt()))).toList();
@@ -120,6 +129,13 @@ public class CalendarController {
     UUID actor = CurrentActor.userId();
     // F2.5: actor-scoped project ids + project-scoped task read.
     java.util.List<UUID> visible = projectMembers.findActiveProjectIdsByUser(actor);
+    // MEMBER/GUEST may only see tasks assigned to them.
+    var actorMembership = visible.isEmpty() ? null
+        : projectMembers.findMembership(visible.get(0), actor).orElse(null);
+    boolean actorIsMember = actorMembership != null
+        && !"OWNER".equals(actorMembership.getRole())
+        && !"ADMIN".equals(actorMembership.getRole())
+        && !"MANAGER".equals(actorMembership.getRole());
     java.util.Set<UUID> visibleSet = new java.util.HashSet<>(visible);
     StringBuilder sb = new StringBuilder(
         "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//smarttask//EN\r\n");
@@ -128,6 +144,10 @@ public class CalendarController {
     for (var t : scoped) {
       if (t.getDeletedAt() != null || t.getDueAt() == null) continue;
       if (!visibleSet.contains(t.getProjectId())) continue;
+      if (actorIsMember
+          && !tasks.findAssignedProjectIdsByUser(actor).contains(t.getProjectId())) {
+        continue;
+      }
       sb.append("BEGIN:VEVENT\r\n");
       sb.append("UID:").append(t.getId()).append("@smarttask\r\n");
       sb.append("DTSTAMP:").append(fmt(t.getDueAt())).append("\r\n");

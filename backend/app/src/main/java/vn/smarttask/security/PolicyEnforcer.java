@@ -147,8 +147,10 @@ public class PolicyEnforcer {
     }
     var m = projectMembers.findMembership(projectId, actor);
     boolean assigned = assignments.findByTaskIdAndUserId(taskId, actor).isPresent();
-    boolean hasRead = m.isPresent() || assigned;
-    boolean canWrite = m.map(x -> isProjectWriter(x.getRole())).orElse(false) || assigned;
+    boolean isWriter = m.map(PolicyEnforcer::isProjectWriter).orElse(false);
+    // MANAGER/OWNER/ADMIN: doc + ghi tat ca task. MEMBER/GUEST: chi doc/ghi task duoc giao.
+    boolean hasRead = isWriter || assigned;
+    boolean canWrite = isWriter || assigned;
     return new Scope(hasRead, canWrite, stateOf(p));
   }
 
@@ -185,9 +187,9 @@ public class PolicyEnforcer {
     return "OWNER".equals(role) || "ADMIN".equals(role) || "MEMBER".equals(role);
   }
 
+  /** Quản lý Project: co the doc/ghi tat ca task. MEMBER/GUEST khong duoc coi la writer. */
   private static boolean isProjectWriter(String role) {
-    return "OWNER".equals(role) || "ADMIN".equals(role) || "MANAGER".equals(role)
-        || "MEMBER".equals(role);
+    return "OWNER".equals(role) || "ADMIN".equals(role) || "MANAGER".equals(role);
   }
 
   /** Participation helper for tests/consumers: project member ids + assignees. */

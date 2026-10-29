@@ -66,11 +66,21 @@ public class ReportService {
         .toList();
   }
 
-  /** Project dashboard: full 02B metric set for one project. */
+  /** Project dashboard: full 02B metric set for one project.
+   *  MEMBER/GUEST only see metrics for tasks assigned to them. */
   @Transactional(readOnly = true, timeout = 15)
   public Map<String, Object> projectDashboard(UUID actor, UUID projectId) {
     requireMember(projectId, actor);
-    var rows = taskRows(projectId);
+    // MEMBER/GUEST: only metrics for tasks assigned to them.
+    var actorMembership = projectMembers.findMembership(projectId, actor).orElse(null);
+    boolean actorIsMember = actorMembership != null
+        && !"OWNER".equals(actorMembership.getRole())
+        && !"ADMIN".equals(actorMembership.getRole())
+        && !"MANAGER".equals(actorMembership.getRole());
+    var rows = taskRows(projectId).stream()
+        .filter(r -> !actorIsMember
+            || assignments.existsByTaskIdAndUserId(r.id(), actor))
+        .toList();
     OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
     Map<String, MetricDictionary.MetricValue> m = new LinkedHashMap<>();
     m.put("PROGRESS_PERCENT", MetricDictionary.progressPercent(rows));
@@ -130,11 +140,21 @@ public class ReportService {
         "metrics", DashboardComposer.personalCounts(sets));
   }
 
-  /** Historical replay from workflow_event (append-only; reopen adds, never rewrites). */
+  /** Historical replay from workflow_event (append-only; reopen adds, never rewrites).
+   *  MEMBER/GUEST only see history of tasks assigned to them. */
   @Transactional(readOnly = true, timeout = 15)
   public Map<String, Object> history(UUID actor, UUID taskId) {
     var t = tasks.findById(taskId).orElseThrow(() -> AppException.notFound("Task not found"));
     requireMember(t.getProjectId(), actor);
+    // MEMBER/GUEST: only see history of assigned tasks.
+    var actorMembership = projectMembers.findMembership(t.getProjectId(), actor).orElse(null);
+    boolean actorIsMember = actorMembership != null
+        && !"OWNER".equals(actorMembership.getRole())
+        && !"ADMIN".equals(actorMembership.getRole())
+        && !"MANAGER".equals(actorMembership.getRole());
+    if (actorIsMember && !assignments.existsByTaskIdAndUserId(taskId, actor)) {
+      throw AppException.notFound("Task not found");
+    }
     var states = workflowEvents.findByTaskIdOrderByCreatedAtAsc(taskId).stream()
         .map(e -> e.getToState()).toList();
     return Map.of("task_id", taskId.toString(),

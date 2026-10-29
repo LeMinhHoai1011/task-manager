@@ -98,6 +98,16 @@ public class TaskController {
     if (projectFilter != null) {
       policy.requireProjectRead(actor, projectFilter);
     }
+    // Determine whether actor is a plain MEMBER/GUEST (not manager/owner/admin) of the project.
+    // MEMBER/GUEST may only see tasks assigned to them.
+    vn.smarttask.project.entity.ProjectMembership actorMembership = null;
+    if (projectFilter != null) {
+      actorMembership = projectMembers.findMembership(projectFilter, actor).orElse(null);
+    }
+    boolean actorIsMember = actorMembership != null
+        && !"OWNER".equals(actorMembership.getRole())
+        && !"ADMIN".equals(actorMembership.getRole())
+        && !"MANAGER".equals(actorMembership.getRole());
     java.util.List<Task> candidates = new java.util.ArrayList<>();
     if (projectFilter != null) {
       candidates.addAll(tasks.findByProjectId(projectFilter));
@@ -125,6 +135,8 @@ public class TaskController {
       if (state != null && !state.equalsIgnoreCase(t.getState())) continue;
       if (blocked != null && blocked != t.isBlockedFlag()) continue;
       if (depth != null && depth != t.getDepth()) continue;
+      // MEMBER/GUEST may only see tasks assigned to them.
+      if (actorIsMember && !assignments.existsByTaskIdAndUserId(t.getId(), actor)) continue;
       // F2.5: assignee/tag as EXISTS point queries (no entity load per row).
       if (assigneeId != null && !assignments.existsByTaskIdAndUserId(t.getId(), assigneeId)) continue;
       if (tag != null && !tags.existsByTaskIdAndTag(t.getId(), tag)) continue;

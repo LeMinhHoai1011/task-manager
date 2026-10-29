@@ -15,6 +15,7 @@ import vn.smarttask.common.PageResponse;
 import vn.smarttask.security.CurrentActor;
 import vn.smarttask.security.PolicyEnforcer;
 import vn.smarttask.security.RequiresPermission;
+import vn.smarttask.project.entity.ProjectMembership;
 import vn.smarttask.task.entity.Task;
 
 /**
@@ -36,15 +37,18 @@ public class ProjectTaskController {
   private final vn.smarttask.task.repo.TaskRepository tasks;
   private final vn.smarttask.task.repo.TaskAssignmentRepository assignments;
   private final vn.smarttask.task.repo.TaskTagRepository tags;
+  private final vn.smarttask.project.repo.ProjectMembershipRepository projectMembers;
 
   public ProjectTaskController(PolicyEnforcer policy,
       vn.smarttask.task.repo.TaskRepository tasks,
       vn.smarttask.task.repo.TaskAssignmentRepository assignments,
-      vn.smarttask.task.repo.TaskTagRepository tags) {
+      vn.smarttask.task.repo.TaskTagRepository tags,
+      vn.smarttask.project.repo.ProjectMembershipRepository projectMembers) {
     this.policy = policy;
     this.tasks = tasks;
     this.assignments = assignments;
     this.tags = tags;
+    this.projectMembers = projectMembers;
   }
 
   public record TaskDto(@JsonProperty("id") UUID id,
@@ -76,6 +80,12 @@ public class ProjectTaskController {
       @RequestParam(required = false, defaultValue = "20") int limit) {
     UUID actor = CurrentActor.userId();
     policy.requireProjectRead(actor, id);
+    // MEMBER/GUEST may only see tasks assigned to them.
+    var actorMembership = projectMembers.findMembership(id, actor).orElse(null);
+    boolean actorIsMember = actorMembership != null
+        && !"OWNER".equals(actorMembership.getRole())
+        && !"ADMIN".equals(actorMembership.getRole())
+        && !"MANAGER".equals(actorMembership.getRole());
     OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
     List<Task> filtered = new ArrayList<>();
     for (Task t : tasks.findByProjectId(id)) {
@@ -83,6 +93,10 @@ public class ProjectTaskController {
       if (state != null && !state.equalsIgnoreCase(t.getState())) continue;
       if (blocked != null && blocked != t.isBlockedFlag()) continue;
       if (depth != null && depth != t.getDepth()) continue;
+      // MEMBER/GUEST may only see tasks assigned to them.
+      if (actorIsMember && !assignments.existsByTaskIdAndUserId(t.getId(), actor)) {
+        continue;
+      }
       if (assigneeId != null && !assignments.existsByTaskIdAndUserId(t.getId(), assigneeId)) {
         continue;
       }
