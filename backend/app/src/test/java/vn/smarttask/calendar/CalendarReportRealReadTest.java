@@ -24,6 +24,7 @@ import vn.smarttask.calendar.service.CalendarService;
 import vn.smarttask.common.AppException;
 import vn.smarttask.notify.service.NotificationService;
 import vn.smarttask.project.repo.ProjectMembershipRepository;
+import vn.smarttask.task.repo.TaskAssignmentRepository;
 import vn.smarttask.reports.ReportController;
 import vn.smarttask.reports.entity.ReportExportJob;
 import vn.smarttask.reports.repo.ReportExportJobRepository;
@@ -48,6 +49,7 @@ class CalendarReportRealReadTest {
   @Mock vn.smarttask.common.service.OutboxService outbox;
   @Mock PolicyEnforcer policy;
   @Mock ProjectMembershipRepository projectMembers;
+  @Mock TaskAssignmentRepository assignments;
   @Mock ReportService reports;
   @Mock ReportExportJobRepository exports;
 
@@ -60,7 +62,7 @@ class CalendarReportRealReadTest {
   void setUp() {
     var calendarService = new CalendarService(tasks, reminders, notifications, audit, outbox);
     calendarController = new CalendarController(calendarService, policy, reminders, tasks,
-        projectMembers);
+        projectMembers, assignments);
     reportController = new ReportController(reports, policy, exports);
     SecurityContextHolder.getContext().setAuthentication(
         new UsernamePasswordAuthenticationToken(new Principal(actor, UUID.randomUUID()), null,

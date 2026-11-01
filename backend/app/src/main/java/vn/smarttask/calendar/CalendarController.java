@@ -14,6 +14,7 @@ import vn.smarttask.common.AppException;
 import vn.smarttask.security.CurrentActor;
 import vn.smarttask.security.PolicyEnforcer;
 import vn.smarttask.security.RequiresPermission;
+import vn.smarttask.task.repo.TaskAssignmentRepository;
 
 @RestController
 @RequestMapping("/api/v1")
@@ -24,15 +25,18 @@ public class CalendarController {
   private final ReminderRuleRepository reminders;
   private final vn.smarttask.task.repo.TaskRepository tasks;
   private final vn.smarttask.project.repo.ProjectMembershipRepository projectMembers;
+  private final TaskAssignmentRepository assignments;
 
   public CalendarController(CalendarService calendar, PolicyEnforcer policy,
       ReminderRuleRepository reminders, vn.smarttask.task.repo.TaskRepository tasks,
-      vn.smarttask.project.repo.ProjectMembershipRepository projectMembers) {
+      vn.smarttask.project.repo.ProjectMembershipRepository projectMembers,
+      TaskAssignmentRepository assignments) {
     this.calendar = calendar;
     this.policy = policy;
     this.reminders = reminders;
     this.tasks = tasks;
     this.projectMembers = projectMembers;
+    this.assignments = assignments;
   }
 
   private static void requireIdem(String k) {
@@ -148,7 +152,7 @@ public class CalendarController {
     java.util.Set<UUID> assignedTaskIds = new java.util.HashSet<>();
     if (!visible.isEmpty()) {
       for (var t : tasks.findByProjectIdInAndDeletedAtIsNull(visible)) {
-        if (tasks.existsAssignedByTaskIdAndUserId(t.getId(), actor)) {
+        if (assignments.existsByTaskIdAndUserId(t.getId(), actor)) {
           assignedTaskIds.add(t.getId());
         }
       }

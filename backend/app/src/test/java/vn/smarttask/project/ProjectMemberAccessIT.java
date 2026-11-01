@@ -16,11 +16,11 @@ import vn.smarttask.common.service.OutboxService;
 import vn.smarttask.identity.entity.AppUser;
 import vn.smarttask.identity.repo.AppUserRepository;
 import vn.smarttask.project.entity.ProjectMembership;
-import vn.smarttask.project.service.ProjectService;
 import vn.smarttask.task.entity.Task;
 import vn.smarttask.task.entity.TaskAssignment;
 import vn.smarttask.task.service.TaskService;
 import vn.smarttask.project.entity.Project;
+import vn.smarttask.project.service.ProjectService;
 import vn.smarttask.project.repo.*;
 import vn.smarttask.task.repo.TaskAssignmentRepository;
 import vn.smarttask.task.repo.TaskRepository;
@@ -32,8 +32,8 @@ import vn.smarttask.workspace.repo.WorkspaceRepository;
 /** Integration-style (offline, Mockito) tests for Giai-doc 2:
  * direct project invitation and per-member task visibility.
  * 
- * NOTE: Mockito unnecessary stubbing errors are documented but do not affect
- * test logic. See individual test comments for details.
+ * All Mockito stubs are kept to exactly match the code-under-test requirements.
+ * No lenient() is used. Stub removal is based on Mockito's unused-stub detection.
  */
 @ExtendWith(MockitoExtension.class)
 public class ProjectMemberAccessIT {
@@ -62,7 +62,6 @@ public class ProjectMemberAccessIT {
     AppUser a = new AppUser(actor, "alice", "alice@x.io", "h", "alice");
     a.setActive(true);
     a.setStatus("ACTIVE");
-    // requireManager() calls members.findMembership - must stub
     when(members.findMembership(pid, actor))
         .thenReturn(Optional.of(new ProjectMembership(UUID.randomUUID(), pid, actor, "MANAGER")));
     AppUser t = new AppUser(target, "bob", "bob@x.io", "h", "bob");
@@ -108,7 +107,6 @@ public class ProjectMemberAccessIT {
     AppUser a = new AppUser(actor, "member", "member@x.io", "h", "member");
     a.setActive(true);
     a.setStatus("ACTIVE");
-    when(users.findById(actor)).thenReturn(Optional.of(a));
     // Stub membership so the test can check the role
     when(members.findMembership(pid, actor))
         .thenReturn(Optional.of(new ProjectMembership(UUID.randomUUID(), pid, actor, "MEMBER")));
@@ -116,8 +114,6 @@ public class ProjectMemberAccessIT {
     var m = members.findMembership(pid, actor).orElseThrow();
     assertEquals("MEMBER", m.getRole());
     assertTrue(!"OWNER".equals(m.getRole()) && !"ADMIN".equals(m.getRole()) && !"MANAGER".equals(m.getRole()));
-    // [Mockito] This stub is technically used but flagged as unnecessary by Mockito's strictness analysis.
-    // The stub is needed because the test retrieves membership via findMembership() and checks its role.
   }
 
   @Test
@@ -126,15 +122,11 @@ public class ProjectMemberAccessIT {
     AppUser a = new AppUser(actor, "manager", "manager@x.io", "h", "manager");
     a.setActive(true);
     a.setStatus("ACTIVE");
-    when(users.findById(actor)).thenReturn(Optional.of(a));
     when(members.findMembership(pid, actor))
         .thenReturn(Optional.of(new ProjectMembership(UUID.randomUUID(), pid, actor, "MANAGER")));
-    when(projects.findById(pid)).thenReturn(Optional.of(new Project(pid, UUID.randomUUID(), "P", actor)));
 
     var m = members.findMembership(pid, actor).orElseThrow();
     assertEquals("MANAGER", m.getRole());
-    // [Mockito] Stub at line 118-121 flagged as unnecessary by Mockito - the test retrieves and checks the membership role,
-    // so the stub is effectively used, but Mockito's analysis considers it redundant.
   }
 
   @Test
@@ -152,13 +144,8 @@ public class ProjectMemberAccessIT {
     when(users.findById(target)).thenReturn(Optional.of(t));
     Project p = new Project(pid, wsId, "P", actor);
     when(projects.findById(pid)).thenReturn(Optional.of(p));
-    // Per Giai-doc 2 design: addMember() does NOT check workspace_membership, only checks ACTIVE user
-    when(wsMembers.findMembership(wsId, target))
-        .thenReturn(Optional.of(new WorkspaceMembership(UUID.randomUUID(), wsId, target, "GUEST")));
-    when(members.findByProjectIdAndUserId(pid, target)).thenReturn(Optional.empty());
-    when(members.save(any())).thenAnswer(i -> i.getArgument(0));
 
-    // Per design decision: addMember does not check workspace membership.
+    // Per design decision: addMember() does NOT check workspace_membership, only checks ACTIVE user.
     // Inviting an active user as MANAGER should succeed (no exception thrown).
     var m = pSvc().addMember(actor, pid, target, "MANAGER");
     // Method succeeds - membership is created without workspace membership check
@@ -173,7 +160,6 @@ public class ProjectMemberAccessIT {
     AppUser a = new AppUser(actor, "alice", "alice@x.io", "h", "alice");
     a.setActive(true);
     a.setStatus("ACTIVE");
-    // requireManager() calls members.findMembership - must stub
     when(members.findMembership(pid, actor))
         .thenReturn(Optional.of(new ProjectMembership(UUID.randomUUID(), pid, actor, "MANAGER")));
     AppUser t = new AppUser(target, "bob", "bob@x.io", "h", "bob");
@@ -191,8 +177,6 @@ public class ProjectMemberAccessIT {
         () -> pSvc().addMember(actor, pid, target, "MEMBER"));
     assertEquals(409, ex.getHttpStatus().value());
     assertEquals("ALREADY_MEMBER", ex.getReasonCode());
-    // [Mockito] The wsMembers.findMembership stub was removed as it's unnecessary -
-    // addMember() does not check workspace membership per Giai-doc 2 design.
   }
 
   @Test
@@ -206,22 +190,16 @@ public class ProjectMemberAccessIT {
     AppUser t = new AppUser(target, "bob", "bob@x.io", "h", "bob");
     t.setActive(true);
     t.setStatus("ACTIVE");
+    // No unnecessary users.findById stubs - test only checks project membership
     when(users.findById(actor)).thenReturn(Optional.of(a));
-    when(users.findById(target)).thenReturn(Optional.of(t));
     Project p = new Project(pid, UUID.randomUUID(), "P", actor);
-    when(projects.findById(pid)).thenReturn(Optional.of(p));
-    when(members.findMembership(pid, actor))
-        .thenReturn(Optional.of(new ProjectMembership(UUID.randomUUID(), pid, actor, "MANAGER")));
     Task task = new Task(tid, pid, "T", actor);
     when(tasks.findById(tid)).thenReturn(Optional.of(task));
-    // stub: target is NOT a project member
-    when(members.findByProjectIdAndUserId(pid, target)).thenReturn(Optional.empty());
+    // target is NOT a project member - Mockito will return Optional.empty() by default
 
     AppException ex = assertThrows(AppException.class,
         () -> tSvc().assign(actor, tid, target, 1L));
     assertEquals(409, ex.getHttpStatus().value());
     assertEquals("NOT_PROJECT_MEMBER", ex.getReasonCode());
-    // [Mockito] Stubs at lines 187-194 flagged as unnecessary by Mockito's strictness analysis.
-    // These stubs are effectively used in the test execution path, but Mockito considers them redundant.
   }
 }
