@@ -92,6 +92,8 @@ class F4EndpointsIT extends ItgBase {
     assertTrue(saved.path("quiet_hours_enabled").asBoolean());
     assertEquals("22:00", saved.path("quiet_hours_start").asText());
     assertEquals("07:30", saved.path("quiet_hours_end").asText());
+    var timezoneUpdate=doPut("/api/v1/reminders/preferences",token,Map.of("timezone","Asia/Bangkok"));assertEquals(200,timezoneUpdate.getResponse().getStatus());assertEquals("Asia/Bangkok",json(timezoneUpdate).path("data").path("timezone").asText());
+    assertEquals(400,doPut("/api/v1/reminders/preferences",token,Map.of("timezone","Invalid/Zone")).getResponse().getStatus());
 
     // EP-167 validation: enabling without a window, and bad HH:MM
     java.util.Map<String, Object> keepWindow = new java.util.HashMap<>();

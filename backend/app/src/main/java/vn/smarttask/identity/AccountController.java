@@ -47,13 +47,13 @@ public class AccountController {
     UUID actor = CurrentActor.userId();
     requireApproveGrant(actor, "account.list", null);
     List<Object> items = users.findByStatusOrderByCreatedAtAsc("PENDING").stream()
-        .map(u -> (Object) Map.of(
-            "user_id", u.getId().toString(),
-            "username", u.getUsername() == null ? "" : u.getUsername(),
-            "email", u.getEmail() == null ? "" : u.getEmail(),
-            "status", u.getStatus() == null ? "" : u.getStatus(),
-            "locked", u.isLocked(),
-            "locked_until", u.getLockedUntil() == null ? null : u.getLockedUntil().toString()))
+        .map(u -> {
+          Map<String,Object> row=new java.util.LinkedHashMap<>();
+          row.put("user_id",u.getId().toString());row.put("username",u.getUsername());
+          row.put("email",u.getEmail());row.put("status",u.getStatus());row.put("locked",u.isLocked());
+          row.put("locked_until",u.getLockedUntil()==null?null:u.getLockedUntil().toString());
+          return (Object)row;
+        })
         .toList();
     return ResponseEntity.ok(ApiResult.ok(items, "account.list.success"));
   }
@@ -103,8 +103,11 @@ public class AccountController {
     // vì user không còn active hoặc locked. Revoke session active duy nhất nếu có.
     identity.revokeAllSessions(id);
     auditAppend(actor, "account.lock", id, "ALLOWED");
-    return ResponseEntity.ok(ApiResult.ok(Map.of("user_id", u.getId().toString(),
-        "locked", u.isLocked(), "locked_until", u.getLockedUntil()),
+    Map<String, Object> result = new java.util.LinkedHashMap<>();
+    result.put("user_id", u.getId().toString());
+    result.put("locked", u.isLocked());
+    result.put("locked_until", u.getLockedUntil());
+    return ResponseEntity.ok(ApiResult.ok(result,
         "account.lock.success"));
   }
 

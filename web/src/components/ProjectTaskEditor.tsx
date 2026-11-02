@@ -1,0 +1,10 @@
+import {useEffect,useState} from "react";
+import {apiFetch,newIdempotencyKey} from "../api/client";
+type Props={id:string;title:string;description?:string|null;version:string;dueAt?:string|null;onChanged:()=>void};
+export default function ProjectTaskEditor({id,title,description,version,dueAt,onChanged}:Props){
+  const [open,setOpen]=useState(false),[name,setName]=useState(title),[notes,setNotes]=useState(description??""),[due,setDue]=useState(""),[busy,setBusy]=useState(false),[message,setMessage]=useState("");
+  useEffect(()=>{setName(title);setNotes(description??"");},[id,title,description]);
+  useEffect(()=>{if(!dueAt){setDue("");return;}const d=new Date(dueAt);setDue(new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16));},[id,dueAt]);
+  async function save(deadline:boolean){setBusy(true);setMessage("");try{await apiFetch(`/tasks/${id}${deadline?"/deadline":""}`,{method:deadline?"POST":"PATCH",ifMatch:version,idempotencyKey:newIdempotencyKey(),body:deadline?{due_at:due?new Date(due).toISOString():null,due_timezone:Intl.DateTimeFormat().resolvedOptions().timeZone}:{title:name.trim(),description:notes}});setMessage(deadline?"Đã cập nhật hạn":"Đã cập nhật nội dung");onChanged();}catch(e:any){setMessage(e.uiMessage??"Không cập nhật được. Kiểm tra quyền hoặc tải lại dữ liệu.");}finally{setBusy(false);}}
+  return <section className="personal-tasks teams-page card"><button disabled={busy} onClick={()=>setOpen(v=>!v)}>{open?"Đóng sửa công việc":"Sửa thông tin / deadline"}</button>{open&&<><form onSubmit={e=>{e.preventDefault();void save(false);}}><label>Tên công việc<input disabled={busy} required maxLength={200} value={name} onChange={e=>setName(e.target.value)}/></label><label>Mô tả<textarea disabled={busy} value={notes} onChange={e=>setNotes(e.target.value)}/></label><button disabled={busy||!name.trim()}>Lưu nội dung</button></form><form onSubmit={e=>{e.preventDefault();void save(true);}}><label>Hạn công việc<input disabled={busy} type="datetime-local" value={due} onChange={e=>setDue(e.target.value)}/></label><button disabled={busy}>Lưu hạn</button></form></>}{message&&<p role="status">{message}</p>}</section>;
+}

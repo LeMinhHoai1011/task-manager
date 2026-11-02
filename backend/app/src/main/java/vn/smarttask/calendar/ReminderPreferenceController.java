@@ -22,14 +22,16 @@ import vn.smarttask.security.RequiresPermission;
  * codebase (V1..V12); the live source of truth is the {@code app_user}
  * profile columns ({@code quiet_hours_enabled}, {@code quiet_start},
  * {@code quiet_end}, {@code timezone}), so both endpoints operate on the
- * profile directly. GET includes {@code timezone} read-only; PUT accepts
- * only the quiet-hours triplet (timezone changes go through the profile
- * path, unknown fields are ignored). {@code HH:MM} values are validated;
+ * profile directly. GET includes the timezone; PUT also accepts an optional
+ * validated IANA timezone. Existing clients may keep sending only the quiet-hours
+ * triplet. {@code HH:MM} values are validated;
  * enabling quiet hours requires both endpoints of the window.
  */
 @RestController
 @RequestMapping("/api/v1/reminders/preferences")
 public class ReminderPreferenceController {
+  @org.springframework.beans.factory.annotation.Autowired(required=false) private org.springframework.jdbc.core.JdbcTemplate jdbc;
+  @org.springframework.beans.factory.annotation.Autowired(required=false) private vn.smarttask.notify.service.NotificationProcessor processor;
 
   private final AppUserRepository users;
   private final AuditService audit;
@@ -45,7 +47,10 @@ public class ReminderPreferenceController {
 
   public record UpdateBody(@JsonProperty("quiet_hours_enabled") Boolean quietHoursEnabled,
       @JsonProperty("quiet_hours_start") String quietHoursStart,
-      @JsonProperty("quiet_hours_end") String quietHoursEnd) {}
+      @JsonProperty("quiet_hours_end") String quietHoursEnd,
+      @JsonProperty("timezone") String timezone) {
+    public UpdateBody(Boolean enabled,String start,String end){this(enabled,start,end,null);}
+  }
 
   private static String fmt(LocalTime t) {
     // Canonical HH:MM regardless of the TIME-column sub-minute precision.
@@ -87,9 +92,11 @@ public class ReminderPreferenceController {
           "quiet_hours_start/end (HH:MM) required when enabled");
     }
     u.setQuietHoursEnabled(enabled);
+    if(body!=null&&body.timezone()!=null){try{u.setTimezone(java.time.ZoneId.of(body.timezone()).getId());}catch(java.time.DateTimeException e){throw AppException.badRequest("TIMEZONE_UNKNOWN","Unknown timezone");}}
     u.setQuietStart(start);
     u.setQuietEnd(end);
     users.save(u);
+    if(jdbc!=null&&processor!=null){var until=processor.quietDeferral(u,"NORMAL");jdbc.update("update notification set quiet_hours_deferred_until=? where user_id=? and quiet_hours_deferred_until is not null and not redacted",until==null?java.time.OffsetDateTime.now(java.time.ZoneOffset.UTC):until,actor);}
     audit.append(actor, "reminder.preferences.update", "app_user", actor,
         "ALLOWED", null, "{}");
     return ResponseEntity.ok(ApiResult.ok(toDto(u), "reminder.preferences.update.success"));

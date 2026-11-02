@@ -25,6 +25,7 @@ import vn.smarttask.task.repo.TaskRepository;
  */
 @Service
 public class CalendarService {
+  @org.springframework.beans.factory.annotation.Autowired(required=false) private org.springframework.jdbc.core.JdbcTemplate jdbc;
   private final TaskRepository tasks;
   private final ReminderRuleRepository rules;
   private final NotificationService notifications;
@@ -65,9 +66,11 @@ public class CalendarService {
 
   @Transactional
   public ReminderRule createRule(UUID actor, UUID taskId, OffsetDateTime remindAt) {
-    var t = tasks.findById(taskId).orElseThrow(() -> AppException.notFound("Task not found"));
+    var t = tasks.findByIdForUpdate(taskId).orElseThrow(() -> AppException.notFound("Task not found"));
+    if(t.getDeletedAt()!=null)throw AppException.notFound("Task not found");
+    if(remindAt==null||!remindAt.isAfter(OffsetDateTime.now(ZoneOffset.UTC)))throw AppException.badRequest("REMINDER_TIME_INVALID","Reminder must be in the future");
     boolean dup = rules.findByTaskId(taskId).stream()
-        .anyMatch(r -> r.getUserId().equals(actor) && r.getRemindAt().equals(remindAt)
+        .anyMatch(r -> r.getUserId().equals(actor) && r.getRemindAt().toInstant().equals(remindAt.toInstant())
             && !"CANCELLED".equals(r.getStatus()));
     if (dup) throw AppException.stateConflict("REMINDER_DUPLICATE_RULE", "Duplicate reminder rule");
     ReminderRule r = new ReminderRule(UuidV7.generate(), taskId, actor, remindAt);
@@ -79,6 +82,7 @@ public class CalendarService {
   @Transactional
   public ReminderRule pause(UUID actor, UUID ruleId) {
     ReminderRule r = requireOwned(actor, ruleId);
+    if(java.util.Set.of("FIRED","CANCELLED").contains(r.getStatus()))throw AppException.stateConflict("REMINDER_TERMINAL","Reminder is already terminal");
     r.setPaused(true);
     r.setStatus("PAUSED");
     rules.save(r);
@@ -92,25 +96,19 @@ public class CalendarService {
    */
   @Transactional
   public int resume(UUID actor, UUID ruleId) {
+    if(jdbc!=null)jdbc.queryForObject("select pg_advisory_xact_lock(hashtextextended(?,83640913))",Object.class,actor.toString());
     ReminderRule r = requireOwned(actor, ruleId);
-    r.setPaused(false);
-    r.setStatus("ACTIVE");
-    rules.save(r);
+    if("CANCELLED".equals(r.getStatus()))throw AppException.stateConflict("REMINDER_TERMINAL","Reminder is cancelled");
+    boolean wasPaused=r.isPaused();
     OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
-    List<ReminderEngine.Rule> engineRules = rules.findByUserId(actor).stream()
-        .map(x -> new ReminderEngine.Rule(x.getId(), x.getUserId(), x.getTaskId(),
-            x.getRemindAt(), x.isPaused(), "FIRED".equals(x.getStatus())))
-        .toList();
-    var digests = new ReminderEngine().resumeDigests(engineRules);
+    var missed=rules.findByUserId(actor).stream().filter(x->x.isPaused()&&"PAUSED".equals(x.getStatus())&&!x.isDigestSent()&&!x.getRemindAt().isAfter(now)).toList();
+    r.setPaused(false);
+    if(!"FIRED".equals(r.getStatus()))r.setStatus("ACTIVE");
+    rules.save(r);
     int sent = 0;
-    // resume of this rule yields at most one digest for the actor if it missed its fire
-    if (r.getRemindAt().isBefore(now) && !r.isDigestSent()
-        && digests.getOrDefault(actor, 0) > 0) {
-      notifications.send(actor, "DEADLINE_REMINDER", "NORMAL", "TASK", r.getTaskId(),
-          "notify.reminder.digest.title", "notify.reminder.digest.body", null,
-          "resume-digest-" + ruleId);
-      r.setDigestSent(true);
-      rules.save(r);
+    if (wasPaused && !missed.isEmpty()) {
+      for(var missedRule:missed){missedRule.setPaused(false);missedRule.setStatus("FIRED");missedRule.setDigestSent(true);rules.save(missedRule);}
+      outbox.emit("app_user",actor,"notification.reminder.digest","{\"user_id\":\""+actor+"\",\"type\":\"DEADLINE_REMINDER\",\"scope_type\":\"SYSTEM\",\"title_key\":\"notify.reminder.digest.title\",\"body_key\":\"notify.reminder.digest.body\",\"dedup_token\":\"resume-digest-"+ruleId+"\"}");
       sent = 1;
     }
     outbox.emit("task", r.getTaskId(), "task.reminder.recomputed", "{}");

@@ -69,7 +69,10 @@ public class AuthorizationPolicy {
           if (isWriteAction(action)) return Decision.FORBIDDEN;
         }
         case "PLANNING" -> {
-          if ("task.start".equals(action) || "task.submit".equals(action)) return Decision.FORBIDDEN;
+          if ("task.start".equals(action) || "task.submit".equals(action)
+              || "workflow.start".equals(action) || "workflow.submit".equals(action)) {
+            return Decision.FORBIDDEN;
+          }
         }
         default -> {}
       }

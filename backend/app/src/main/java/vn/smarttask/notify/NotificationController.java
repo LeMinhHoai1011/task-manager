@@ -16,9 +16,28 @@ import vn.smarttask.security.RequiresPermission;
 public class NotificationController {
 
   private final NotificationService notifications;
+  private final vn.smarttask.notify.repo.NotificationRepository repository;
+  private final vn.smarttask.security.PolicyEnforcer policy;
 
-  public NotificationController(NotificationService notifications) {
+  public NotificationController(NotificationService notifications, vn.smarttask.notify.repo.NotificationRepository repository, vn.smarttask.security.PolicyEnforcer policy) {
     this.notifications = notifications;
+    this.repository=repository; this.policy=policy;
+  }
+  @GetMapping("/{id}/target")
+  public ApiResult<Object> target(@PathVariable UUID id) {
+    UUID actor=CurrentActor.userId();
+    var notification=repository.findById(id).filter(n->actor.equals(n.getUserId()) && !n.isRedacted())
+        .orElseThrow(()->vn.smarttask.common.AppException.notFound("Notification not found"));
+    String link=notification.getDeepLink();
+    if("PERSONAL".equals(notification.getScopeType())&&"/my-tasks".equals(link)&&notification.getScopeId()!=null) {
+      return ApiResult.ok(Map.of("path","/my-tasks"),"notification.target.success");
+    }
+    if(link==null || !link.matches("/tasks/[0-9a-fA-F-]{36}"))throw vn.smarttask.common.AppException.notFound("Target unavailable");
+    UUID taskId=UUID.fromString(link.substring("/tasks/".length()));
+    if(notification.getScopeId()==null || !"PROJECT".equals(notification.getScopeType()))throw vn.smarttask.common.AppException.notFound("Target unavailable");
+    policy.requireProjectRead(actor,notification.getScopeId());
+    policy.requireTaskRead(actor,taskId);
+    return ApiResult.ok(Map.of("path",link),"notification.target.success");
   }
 
   @GetMapping
@@ -26,33 +45,24 @@ public class NotificationController {
   public ResponseEntity<ApiResult<PageResponse<Object>>> list(
       @RequestParam(required = false) String cursor,
       @RequestParam(required = false, name = "since_seq") Long sinceSeq,
+      @RequestParam(defaultValue = "all") String filter,
       @RequestParam(required = false, defaultValue = "20") int limit) {
     UUID actor = CurrentActor.userId();
     int pageSize = Math.min(Math.max(limit, 1), 100);
-    // Actor-scoped only: a user can never list another user's notifications
-    // (policy = ownership; unknown ids read as 404 at markRead).
-    var all = notifications.list(actor).stream()
-        .filter(n -> sinceSeq == null || extractSeq(n) > sinceSeq)
-        .filter(n -> !n.isRedacted())
-        .toList();
-    int start = 0;
-    if (cursor != null && !cursor.isBlank()) {
-      for (int i = 0; i < all.size(); i++) {
-        if (all.get(i).getId().toString().equals(cursor)) { start = i + 1; break; }
-      }
-    }
-    int end = Math.min(start + pageSize, all.size());
-    var items = all.subList(start, end).stream()
+    var page = notifications.inbox(actor, cursor, sinceSeq, pageSize, filter);
+    var items = page.items().stream()
         .map(n -> (Object) Map.of("id", n.getId().toString(),
-            "kind", n.getKind(), "read", n.isRead())).toList();
-    String next = end < all.size() ? all.get(end - 1).getId().toString() : null;
+            "kind", n.getKind(), "read", n.isRead(), "seq", n.getSeq())).toList();
+    String next = page.next();
     return ResponseEntity.ok(ApiResult.ok(PageResponse.ofPage(items, next, next != null,
-        pageSize, (long) all.size(), null, null),
+        pageSize, page.total(), null, null),
         "notification.list.success"));
   }
 
-  private static long extractSeq(vn.smarttask.notify.entity.Notification n) {
-    return n.getOccurredAt() == null ? 0 : n.getOccurredAt().toEpochSecond();
+  @GetMapping("/unread-count")
+  @RequiresPermission("notification:read")
+  public ApiResult<Object> unreadCount() {
+    return ApiResult.ok(Map.of("count", notifications.unreadCount(CurrentActor.userId())), "notification.unread.success");
   }
 
   @PostMapping("/{id}/read")

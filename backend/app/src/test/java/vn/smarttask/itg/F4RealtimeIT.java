@@ -192,6 +192,7 @@ class F4RealtimeIT extends ItgBase {
     var p = mkActiveProject(mgr.getId(), ws, "f4rt7");
     addProjectMember(mgr.getId(), p.getId(), member.getId(), "MEMBER");
     var t = mkTask(mgr.getId(), p.getId(), "f4rt7 task " + tag());
+    tasks.assign(mgr.getId(),t.getId(),member.getId(),t.getVersion());
 
     String token = loginToken(member.getUsername(), "Secret123!");
     MvcResult started = openStream(issueTicket(token));

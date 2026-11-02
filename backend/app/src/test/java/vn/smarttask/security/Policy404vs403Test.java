@@ -86,7 +86,8 @@ class Policy404vs403Test {
     when(workspaces.findById(wsId)).thenReturn(Optional.of(workspace(wsId)));
     when(projectMembers.findMembership(pid, actor)).thenReturn(Optional.of(
         new ProjectMembership(UuidV7.generate(), pid, actor, "VIEWER")));
-    when(assignments.findByTaskIdAndUserId(tid, actor)).thenReturn(Optional.empty());
+    when(assignments.findByTaskIdAndUserId(tid, actor)).thenReturn(Optional.of(
+        new vn.smarttask.task.entity.TaskAssignment(UuidV7.generate(), tid, actor)));
 
     AppException ex = assertThrows(AppException.class,
         () -> enforcer().requireTaskWrite(actor, tid));
@@ -96,7 +97,7 @@ class Policy404vs403Test {
   }
 
   @Test
-  void memberReadAndWriteAllowed() {
+  void assignedMemberReadsButCannotManageTask() {
     UUID actor = UUID.randomUUID(), tid = UuidV7.generate();
     UUID pid = UuidV7.generate(), wsId = UuidV7.generate();
     when(tasks.findById(tid))
@@ -105,10 +106,12 @@ class Policy404vs403Test {
     when(workspaces.findById(wsId)).thenReturn(Optional.of(workspace(wsId)));
     when(projectMembers.findMembership(pid, actor)).thenReturn(Optional.of(
         new ProjectMembership(UuidV7.generate(), pid, actor, "MEMBER")));
-    when(assignments.findByTaskIdAndUserId(tid, actor)).thenReturn(Optional.empty());
+    when(assignments.findByTaskIdAndUserId(tid, actor)).thenReturn(Optional.of(
+        new vn.smarttask.task.entity.TaskAssignment(UuidV7.generate(), tid, actor)));
 
     assertDoesNotThrow(() -> enforcer().requireTaskRead(actor, tid));
-    assertDoesNotThrow(() -> enforcer().requireTaskWrite(actor, tid));
+    assertEquals(403, assertThrows(AppException.class,
+        () -> enforcer().requireTaskWrite(actor, tid)).getHttpStatus().value());
   }
 
   @Test

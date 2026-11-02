@@ -12,7 +12,7 @@ public final class PendingApprovalGuard {
 
   public static final Set<String> LOCKED_ACTIONS = Set.of(
       "task.update", "task.deadline.set", "task.assign", "task.unassign",
-      "task.checklist.add", "task.dependency.add", "task.timelog.add",
+      "task.checklist.add", "task.checklist.tick", "task.dependency.add", "task.timelog.add",
       "task.blocked.set", "file.upload.init", "file.upload.commit",
       "file.restore", "file.delete");
 

@@ -30,6 +30,8 @@ export default function Projects() {
   const [newWs, setNewWs] = useState("");
   const [formErr, setFormErr] = useState<string | null>(null);
   const [workspaces, setWorkspaces] = useState<WorkspaceOption[]>([]);
+  const [actionBusy,setActionBusy]=useState(false);
+  async function projectAction(id:string,activate:boolean){setActionBusy(true);setErr(null);try{const r=await apiFetch<{data:{version:number;approval_enabled:boolean}}>(`/projects/${id}/settings`);await apiFetch(`/projects/${id}/${activate?"activate":"approval"}`,{method:activate?"POST":"PATCH",ifMatch:String(r.data.version),body:activate?{}:{enabled:!r.data.approval_enabled,version:r.data.version}});await load(null,wsFilter||undefined);}catch(e:any){setErr(e.uiMessage??"Không thay đổi được dự án");}finally{setActionBusy(false);}}
 
   const load = useCallback(async (cursor?: string | null, ws?: string) => {
     if (!cursor) setLoading(true);
@@ -117,6 +119,7 @@ export default function Projects() {
               <p className="font-semibold text-slate-900">{p.name}</p>
               <p className="mt-1 truncate text-xs text-slate-500">{workspaces.find((w) => w.id === p.workspace_id)?.name ?? "Không gian làm việc"}</p>
               {p.status && <p className="mt-2"><span className="badge-state badge-todo">{p.status}</span></p>}
+              <div className="mt-2 flex flex-wrap gap-2">{p.status==="PLANNING"&&<Button size="sm" disabled={actionBusy} onClick={()=>void projectAction(p.id,true)}>Kích hoạt dự án</Button>}<Button size="sm" variant="secondary" disabled={actionBusy} onClick={()=>void projectAction(p.id,false)}>Bật / tắt duyệt</Button></div>
               <Link to={`/tasks?project=${p.id}`} className="mt-1 inline-block text-xs text-primary hover:underline">
                 {t("nav.tasks")} →
               </Link>

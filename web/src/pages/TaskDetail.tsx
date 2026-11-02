@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { apiFetch, mutationOpts, newIdempotencyKey, unwrapData, unwrapList } from "../api/client";
 import WorkflowPanel from "./WorkflowPanel";
+import TaskResponsibility from "./TaskResponsibility";
+import ProjectTaskEditor from "../components/ProjectTaskEditor";
 import { t } from "../i18n";
 import { useRealtimeEvent } from "../realtime/RealtimeContext";
 import { Badge, Button, Card, EmptyState, ErrorAlert, Spinner, TextInput } from "../components/ui";
@@ -69,6 +71,9 @@ export default function TaskDetail() {
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const loadSequence=useRef(0);
+  const [tickBusy,setTickBusy]=useState(false);
+  const [subtaskPage,setSubtaskPage]=useState(0),[moreSubtasks,setMoreSubtasks]=useState(false);
 
   // Dependency modal (thay prompt()).
   const [depOpen, setDepOpen] = useState(false);
@@ -87,23 +92,27 @@ export default function TaskDetail() {
 
   const load = useCallback(async () => {
     if (!id) return;
+    const request=++loadSequence.current;
     setErr(null);
     setLoading(true);
     try {
       // GET /tasks/{id} trả envelope { data: TaskDto } — bóc canonical.
       const r = await apiFetch(`/tasks/${id}`);
       const d = unwrapData<Task>(r);
+      if(request!==loadSequence.current)return;
       if (!d || typeof d !== "object") throw new Error("empty");
       setTask(d);
     } catch (e: any) {
-      setErr(e?.uiMessage ?? t("task.not_found"));
+      if(request===loadSequence.current)setErr(e?.uiMessage ?? t("task.not_found"));
     } finally {
-      setLoading(false);
+      if(request===loadSequence.current)setLoading(false);
     }
+    if(request!==loadSequence.current)return;
+    apiFetch(`/tasks/${id}/subtasks`,{query:{page:0,size:20}}).then(r=>{if(request===loadSequence.current){const rows=unwrapList<Subtask>(r);setSubtasks(rows);setMoreSubtasks(rows.length===20);setSubtaskPage(0);}}).catch(()=>{});
     // Checklist/timelogs trả { data: [...] } thuần; comments/activity trả PageResponse.
     apiFetch(`/tasks/${id}/checklist`)
-      .then((r) => setChecklist(unwrapList<ChecklistItem>(r)))
-      .catch(() => setChecklist([]));
+      .then((r) => {if(request===loadSequence.current)setChecklist(unwrapList<ChecklistItem>(r));})
+      .catch(() => {if(request===loadSequence.current)setChecklist([]);});
     apiFetch(`/tasks/${id}/timelogs`)
       .then((r) => setTimelogs(unwrapList<Timelog>(r)))
       .catch(() => setTimelogs([]));
@@ -114,6 +123,7 @@ export default function TaskDetail() {
       .then((r) => setTimeline(unwrapList<TimelineItem>(r)))
       .catch(() => setTimeline([]));
   }, [id]);
+  async function tick(item:ChecklistItem,done:boolean){if(!task||task.version==null||tickBusy)return;setTickBusy(true);setFormErr(null);loadSequence.current++;setChecklist(rows=>rows.map(row=>row.id===item.id?{...row,done}:row));try{await apiFetch(`/tasks/${id}/checklist/${item.id}`,{method:"PATCH",ifMatch:String(task.version),body:{done}});await load();}catch(e:any){setChecklist(rows=>rows.map(row=>row.id===item.id?{...row,done:item.done}:row));setFormErr(e.uiMessage??"Không cập nhật được checklist");}finally{setTickBusy(false);}}
 
   useEffect(() => {
     void load();
@@ -124,8 +134,7 @@ export default function TaskDetail() {
     void load();
   });
 
-  // Subtasks: backend chưa có endpoint liệt kê (KHÔNG bịa path mới) —
-  // degrade: chỉ tạo mới + hiển thị kết quả vừa tạo trong phiên.
+  // Subtasks persist through the parent-scoped API and survive reload.
   async function createSubtask() {
     const v = fieldErr(subTitle.trim().length > 0, "form.required");
     setFormErr(v);
@@ -140,7 +149,7 @@ export default function TaskDetail() {
       });
       const d = unwrapData<Subtask>(r);
       if (d && typeof d === "object" && (d as Subtask).id) {
-        setSubtasks((s) => [...s, d as Subtask]);
+        await load();
       }
       setSubTitle("");
       setFormOk(t("task.created_ok"));
@@ -275,6 +284,7 @@ export default function TaskDetail() {
         {` · ${t("task.version")}: ${String(version)}`}
       </p>
       {task.description && <p className="mt-2 text-sm text-slate-600">{task.description}</p>}
+      <ProjectTaskEditor id={String(id)} title={task.title} description={task.description} version={String(version)} dueAt={task.due_at} onChanged={()=>void load()}/>
       <ErrorAlert message={formErr} />
       {formOk && (
         <p role="status" className="mt-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">
@@ -285,7 +295,7 @@ export default function TaskDetail() {
         <div className="flex flex-col gap-4">
           <Card>
             <h2 className="text-sm font-semibold text-slate-900">{t("task.subtasks")}</h2>
-            <p className="mt-1 text-xs text-slate-500">{t("task.no_subtasks_note")}</p>
+            <p className="mt-1 text-xs text-slate-500">Công việc con trong phạm vi quyền truy cập của bạn.</p>
             <ul className="mt-2 flex flex-col gap-1.5">
               {subtasks.map((s) => (
                 <li key={s.id} className="flex items-center justify-between rounded-lg bg-slate-50 px-2.5 py-1.5 text-sm">
@@ -295,6 +305,7 @@ export default function TaskDetail() {
               ))}
               {subtasks.length === 0 && <li className="text-sm text-slate-400">—</li>}
             </ul>
+            {moreSubtasks&&<Button variant="secondary" onClick={()=>void apiFetch(`/tasks/${id}/subtasks`,{query:{page:subtaskPage+1,size:20}}).then(r=>{const rows=unwrapList<Subtask>(r);setSubtasks(old=>[...old,...rows]);setSubtaskPage(n=>n+1);setMoreSubtasks(rows.length===20);}).catch(()=>setFormErr("Không tải được công việc con"))}>Tải thêm công việc con</Button>}
             <div className="mt-2 flex gap-2">
               <TextInput aria-label={t("task.subtask_title")} placeholder={t("task.subtask_title")} value={subTitle} onChange={(e) => setSubTitle(e.target.value)} />
               <Button variant="secondary" size="sm" onClick={() => void createSubtask()}>
@@ -307,7 +318,7 @@ export default function TaskDetail() {
             <ul className="mt-2 flex flex-col gap-1.5 text-sm">
               {checklist.map((c) => (
                 <li key={c.id} className="flex items-center gap-2">
-                  <input type="checkbox" checked={!!c.done} readOnly className="checkbox" aria-label={c.title ?? c.label ?? c.id} />
+                  <input type="checkbox" checked={!!c.done} disabled={tickBusy} onChange={e=>void tick(c,e.target.checked)} className="checkbox" aria-label={c.title ?? c.label ?? c.id} />
                   <span className={c.done ? "text-slate-400 line-through" : ""}>{c.title ?? c.label ?? c.id}</span>
                 </li>
               ))}
@@ -403,7 +414,8 @@ export default function TaskDetail() {
           </Card>
         </div>
         <div className="flex flex-col gap-4">
-          <WorkflowPanel taskId={String(id)} version={String(version)} role={task.role} onDone={() => void load()} />
+          <WorkflowPanel disabled={tickBusy} taskId={String(id)} version={String(version)} role={task.role} onDone={() => void load()} />
+          <TaskResponsibility id={String(id)} version={String(version)} onChanged={() => void load()} />
           <Card>
             <h2 className="text-sm font-semibold text-slate-900">{t("task.timeline")}</h2>
             {timeline.length === 0 ? (

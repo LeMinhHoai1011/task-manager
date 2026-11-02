@@ -83,7 +83,7 @@ export function connectRealtime(opts: RealtimeOptions = {}) {
   let attempt = 0;
 
   function schedule() {
-    if (closed) return;
+    if (closed || navigator.onLine === false) return;
     if (timer !== null) window.clearTimeout(timer);
     attempt += 1;
     const delay = Math.min(attempt * 2, 30) * 1000;
@@ -96,6 +96,7 @@ export function connectRealtime(opts: RealtimeOptions = {}) {
 
   async function connect() {
     if (closed) return;
+    if(navigator.onLine===false){opts.onStatus?.(false);return;}
     const gen = ++generation;
     try {
       controller?.abort();
@@ -157,6 +158,14 @@ export function connectRealtime(opts: RealtimeOptions = {}) {
     schedule();
   }
 
+  function offline(){
+    generation++;
+    if(timer!==null){window.clearTimeout(timer);timer=null;}
+    controller?.abort();opts.onStatus?.(false);
+  }
+  function online(){if(!closed){attempt=0;void connect();}}
+  window.addEventListener("offline",offline);
+  window.addEventListener("online",online);
   void connect();
 
   return {
@@ -170,6 +179,8 @@ export function connectRealtime(opts: RealtimeOptions = {}) {
     },
     close() {
       closed = true;
+      window.removeEventListener("offline",offline);
+      window.removeEventListener("online",online);
       generation += 1;
       if (timer !== null) window.clearTimeout(timer);
       try {

@@ -17,12 +17,13 @@ const ACTION_VARIANT: Record<(typeof ACTIONS)[number], "primary" | "indigo" | "s
   reopen: "purple",
 };
 
-export default function WorkflowPanel({ taskId, version, role, onDone }: { taskId: string; version: string; role?: string; onDone?: () => void }) {
+export default function WorkflowPanel({ taskId, version, role, onDone,disabled=false }: { taskId: string; version: string; role?: string; onDone?: () => void;disabled?:boolean }) {
   const auth = useAuth();
   const [reason, setReason] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
   const [idem] = useState(() => newIdempotencyKey());
+  const [busy,setBusy]=useState(false);
 
   const canShow = (a: (typeof ACTIONS)[number]): boolean => {
     if (!role) return true;
@@ -32,6 +33,7 @@ export default function WorkflowPanel({ taskId, version, role, onDone }: { taskI
   };
 
   async function run(action: (typeof ACTIONS)[number]) {
+    if(busy||disabled)return;
     setErr(null);
     setOk(null);
     if ((action === "reject" || action === "reopen") && reason.trim().length < 3) {
@@ -44,6 +46,7 @@ export default function WorkflowPanel({ taskId, version, role, onDone }: { taskI
         method: "POST",
       });
     try {
+      setBusy(true);
       await op();
       setOk(`${action} OK`);
       onDone?.();
@@ -54,6 +57,8 @@ export default function WorkflowPanel({ taskId, version, role, onDone }: { taskI
         return;
       }
       setErr(e?.uiMessage ?? t("error.generic"));
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -65,7 +70,7 @@ export default function WorkflowPanel({ taskId, version, role, onDone }: { taskI
       </div>
       <div className="row">
         {ACTIONS.filter(canShow).map((a) => (
-          <Button key={a} size="sm" variant={ACTION_VARIANT[a]} onClick={() => void run(a)}>
+          <Button key={a} disabled={busy||disabled} size="sm" variant={ACTION_VARIANT[a]} onClick={() => void run(a)}>
             {a}
           </Button>
         ))}

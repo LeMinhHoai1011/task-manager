@@ -1,0 +1,50 @@
+{
+  "date": "2026-11-02",
+  "timezone": "Asia/Bangkok",
+  "branch": "main",
+  "headBefore": "0e486ae2fc8f7f052e8d4e591de454c5558fe317",
+  "headAfter": "0e486ae2fc8f7f052e8d4e591de454c5558fe317",
+  "committed": false,
+  "backend": {
+    "database": "PostgreSQL 16.6",
+    "total": 478,
+    "executed": 442,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 36,
+    "build": "SUCCESS",
+    "finishedAt": "2026-11-02T16:43:23+07:00",
+    "log": ".tools/v2-pg16-validation-final.log"
+  },
+  "frontend": {
+    "tests": 23,
+    "suites": 10,
+    "failures": 0,
+    "productionBuild": "PASS"
+  },
+  "browser": {
+    "personalTasks": "PASS",
+    "desktopMobileOffline": "PASS",
+    "twoAccountWorkflowLatestRuntime": "PASS",
+    "log": ".tools/v2-workflow-browser-pg16-final.log"
+  },
+  "database": {
+    "migrations": 16,
+    "restoreDatabase": "smarttask_restore_pg16_20261102",
+    "restoredDemoTasks": 5,
+    "restore": "PASS"
+  },
+  "notVerified": [
+    "Docker Linux build/restart/healthcheck",
+    "Real MinIO and object storage restore",
+    "Live SMTP/push provider",
+    "Ollama live/latency tests"
+  ],
+  "toolsAdded": [
+    "Maven portable for Java build/tests",
+    "PostgreSQL16 portable for target-version compatibility/restore",
+    "Playwright for Edge E2E/screenshots",
+    "S3Mock for existing S3 integration tests"
+  ],
+  "skillsInstalled": []
+}

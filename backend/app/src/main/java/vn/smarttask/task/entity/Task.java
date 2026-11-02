@@ -10,8 +10,14 @@ public class Task {
   @Id
   @Column(name = "id", nullable = false)
   private UUID id;
-  @Column(name = "project_id", nullable = false)
+  @Column(name = "project_id")
   private UUID projectId;
+  @Column(name = "scope", nullable = false)
+  private String scope = "PROJECT";
+  @Column(name = "owner_user_id")
+  private UUID ownerUserId;
+  @Column(name = "notes")
+  private String notes;
   @Column(name = "parent_task_id")
   private UUID parentTaskId;
   @Column(name = "depth", nullable = false)
@@ -86,6 +92,16 @@ public class Task {
 
   public UUID getId() { return id; }
   public UUID getProjectId() { return projectId; }
+  public String getScope() { return scope; }
+  public UUID getOwnerUserId() { return ownerUserId; }
+  public String getNotes() { return notes; }
+  public void setNotes(String value) { notes = value; }
+  public static Task personal(UUID id, UUID owner, String title) {
+    Task task = new Task(id, null, title, owner);
+    task.scope = "PERSONAL";
+    task.ownerUserId = owner;
+    return task;
+  }
   public UUID getParentTaskId() { return parentTaskId; }
   public void setParentTaskId(UUID v) { this.parentTaskId = v; }
   public int getDepth() { return depth; }

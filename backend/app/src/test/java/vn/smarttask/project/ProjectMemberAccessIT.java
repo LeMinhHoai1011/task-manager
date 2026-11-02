@@ -190,11 +190,13 @@ public class ProjectMemberAccessIT {
     AppUser t = new AppUser(target, "bob", "bob@x.io", "h", "bob");
     t.setActive(true);
     t.setStatus("ACTIVE");
-    // No unnecessary users.findById stubs - test only checks project membership
+    when(users.findById(target)).thenReturn(Optional.of(t));
     when(users.findById(actor)).thenReturn(Optional.of(a));
     Project p = new Project(pid, UUID.randomUUID(), "P", actor);
     Task task = new Task(tid, pid, "T", actor);
-    when(tasks.findById(tid)).thenReturn(Optional.of(task));
+    when(tasks.findByIdForUpdate(tid)).thenReturn(Optional.of(task));
+    when(projects.findById(pid)).thenReturn(Optional.of(p));
+    when(workspaces.findById(p.getWorkspaceId())).thenReturn(Optional.of(new vn.smarttask.workspace.entity.Workspace(p.getWorkspaceId(),"W",actor,"TEAM")));
     // target is NOT a project member - Mockito will return Optional.empty() by default
 
     AppException ex = assertThrows(AppException.class,

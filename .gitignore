@@ -11,6 +11,8 @@ dist/
 build/
 
 # Java / Spring Boot
+.tools/
+apache-maven-*-bin.zip
 target/
 .gradle/
 *.class

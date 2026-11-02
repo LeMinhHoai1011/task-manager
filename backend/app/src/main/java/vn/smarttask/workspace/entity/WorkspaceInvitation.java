@@ -38,6 +38,7 @@ public class WorkspaceInvitation {
     if (createdAt == null) createdAt = OffsetDateTime.now(java.time.ZoneOffset.UTC);
   }
   public UUID getId() { return id; }
+  public OffsetDateTime getCreatedAt(){return createdAt;}
   public UUID getWorkspaceId() { return workspaceId; }
   public String getEmail() { return email; }
   public String getRole() { return role; }

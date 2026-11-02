@@ -19,6 +19,8 @@ import vn.smarttask.task.repo.TaskAssignmentRepository;
 @RestController
 @RequestMapping("/api/v1")
 public class CalendarController {
+  @org.springframework.beans.factory.annotation.Autowired
+  private vn.smarttask.task.service.TaskOverviewService overview;
 
   private final CalendarService calendar;
   private final PolicyEnforcer policy;
@@ -43,6 +45,9 @@ public class CalendarController {
     if (k == null || k.isBlank()) throw AppException.badRequest("IDEMPOTENCY_KEY_REQUIRED", "Idempotency-Key required");
   }
 
+  public ResponseEntity<ApiResult<List<Object>>> calendar(String from,String to,String view,String date,String timezone) {
+    return calendar(from,to,view,date,timezone,"all",null,null,0,200);
+  }
   @GetMapping("/calendar")
   @RequiresPermission("calendar:read")
   public ResponseEntity<ApiResult<List<Object>>> calendar(
@@ -50,38 +55,25 @@ public class CalendarController {
       @RequestParam(required = false) String to,
       @RequestParam(defaultValue = "month") String view,
       @RequestParam(required = false) String date,
-      @RequestParam(required = false) String timezone) {
+      @RequestParam(required = false) String timezone,
+      @RequestParam(defaultValue="all") String scope,
+      @RequestParam(required=false) UUID projectId,@RequestParam(required=false) UUID teamId,
+      @RequestParam(defaultValue="0") int page,@RequestParam(defaultValue="200") int size) {
     UUID actor = CurrentActor.userId();
-    // F2.5: actor-scoped project ids (indexed query, no full-table scan).
-    java.util.List<UUID> visible = projectMembers.findActiveProjectIdsByUser(actor);
-    // Collect set of project ids where actor is MANAGER/OWNER/ADMIN (can see all tasks).
-    // For other projects (MEMBER/GUEST), actor can only see tasks assigned to them.
-    java.util.Set<UUID> managerProjects = new java.util.HashSet<>();
-    for (UUID pid : visible) {
-      var mem = projectMembers.findMembership(pid, actor).orElse(null);
-      if (mem != null && ("OWNER".equals(mem.getRole()) || "ADMIN".equals(mem.getRole())
-          || "MANAGER".equals(mem.getRole()))) {
-        managerProjects.add(pid);
-      }
-    }
-    // actor's assigned task project ids (for MEMBER/GUEST filtering)
-    java.util.Set<UUID> assignedProjectIds = new java.util.HashSet<>(
-        tasks.findAssignedProjectIdsByUser(actor));
-    LocalDate anchor = date == null ? LocalDate.now() : LocalDate.parse(date);
-    var items = calendar.view(view, anchor, timezone, visible).stream()
-        .filter(d -> managerProjects.contains(d.projectId())
-            || assignedProjectIds.contains(d.projectId()))
-        .map(d -> (Object) Map.of("task_id", d.taskId().toString(),
-            "project_id", d.projectId().toString(),
-            "due_at", String.valueOf(d.dueAt()))).toList();
+    if(!java.util.Set.of("day","week","month","unscheduled").contains(view))throw AppException.badRequest("CALENDAR_VIEW_UNKNOWN","Unknown view");
+    LocalDate anchor;
+    try {anchor=date==null?null:LocalDate.parse(date);}
+    catch(java.time.DateTimeException e){throw AppException.badRequest("INVALID_DATE","Invalid calendar date");}
+    var items = overview.calendar(actor,view,anchor,timezone,scope,projectId,teamId,page,size).stream().map(row->(Object)row).toList();
     return ResponseEntity.ok(ApiResult.ok(items, "calendar.list.success"));
   }
 
+  public ResponseEntity<ApiResult<List<Object>>> reminders(){return reminders(0,100);}
   @GetMapping("/reminders")
   @RequiresPermission("calendar:read")
-  public ResponseEntity<ApiResult<List<Object>>> reminders() {
+  public ResponseEntity<ApiResult<List<Object>>> reminders(@RequestParam(defaultValue="0") int page,@RequestParam(defaultValue="100") int size) {
     UUID actor = CurrentActor.userId();
-    var items = reminders.findByUserId(actor).stream()
+    var items = reminders.findByUserId(actor,org.springframework.data.domain.PageRequest.of(Math.max(page,0),Math.max(1,Math.min(size,100)),org.springframework.data.domain.Sort.by("createdAt").descending().and(org.springframework.data.domain.Sort.by("id")))).getContent().stream()
         .map(r -> (Object) Map.of("id", r.getId().toString(),
             "task_id", r.getTaskId().toString(),
             "remind_at", String.valueOf(r.getRemindAt()),
@@ -99,7 +91,7 @@ public class CalendarController {
     requireIdem(idem);
     UUID actor = CurrentActor.userId();
     UUID taskId = UUID.fromString((String) body.get("task_id"));
-    policy.requireTaskWrite(actor, taskId, "reminder.create", "calendar:write");
+    requireReminderAccess(actor,taskId);
     var r = calendar.createRule(actor, taskId,
         java.time.OffsetDateTime.parse((String) body.get("remind_at")));
     return ResponseEntity.ok(ApiResult.ok(java.util.Map.of("id", r.getId().toString()),
@@ -114,7 +106,7 @@ public class CalendarController {
     UUID actor = CurrentActor.userId();
     var rule = reminders.findById(id)
         .orElseThrow(() -> AppException.notFound("Reminder not found"));
-    policy.requireTaskWrite(actor, rule.getTaskId(), "reminder.pause", "calendar:write");
+    requireReminderAccess(actor,rule.getTaskId());
     calendar.pause(actor, id);
     return ResponseEntity.ok(ApiResult.ok(null, "reminder.pause.success"));
   }
@@ -127,7 +119,7 @@ public class CalendarController {
     UUID actor = CurrentActor.userId();
     var rule = reminders.findById(id)
         .orElseThrow(() -> AppException.notFound("Reminder not found"));
-    policy.requireTaskWrite(actor, rule.getTaskId(), "reminder.resume", "calendar:write");
+    requireReminderAccess(actor,rule.getTaskId());
     int digests = calendar.resume(actor, id);
     return ResponseEntity.ok(ApiResult.ok(Map.of("digests_sent", digests),
         "reminder.resume.success"));
@@ -164,6 +156,8 @@ public class CalendarController {
         : tasks.findByProjectIdInAndDeletedAtIsNull(visible);
     for (var t : scoped) {
       if (t.getDeletedAt() != null || t.getDueAt() == null) continue;
+      try {policy.requireTaskRead(actor,t.getId());}
+      catch(AppException e){if(e.getHttpStatus().value()==403||e.getHttpStatus().value()==404)continue;throw e;}
       if (!visibleSet.contains(t.getProjectId())) continue;
       // MEMBER/GUEST: only include tasks assigned to them.
       if (!managerProjects.contains(t.getProjectId()) && !assignedTaskIds.contains(t.getId())) {
@@ -181,6 +175,12 @@ public class CalendarController {
         .body(sb.toString());
   }
 
+  private void requireReminderAccess(UUID actor,UUID taskId) {
+    var task=tasks.findById(taskId).filter(t->t.getDeletedAt()==null).orElseThrow(()->AppException.notFound("Task not found"));
+    if("PERSONAL".equals(task.getScope())) {
+      if(!actor.equals(task.getOwnerUserId()))throw AppException.notFound("Task not found");
+    }else policy.requireTaskRead(actor,taskId);
+  }
   private static String fmt(java.time.OffsetDateTime dt) {
     return dt.withOffsetSameInstant(java.time.ZoneOffset.UTC)
         .format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'"));

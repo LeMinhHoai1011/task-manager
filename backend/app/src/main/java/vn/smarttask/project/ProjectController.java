@@ -42,6 +42,16 @@ public class ProjectController {
       @JsonProperty("project_id") UUID projectId,
       @JsonProperty("title") String title,
       @JsonProperty("due_at") OffsetDateTime dueAt) {}
+  @GetMapping("/projects/{id}/settings")
+  public ApiResult<?> settings(@PathVariable UUID id) {
+    policy.requireProjectRead(CurrentActor.userId(),id);var project=projects.get(CurrentActor.userId(),id);
+    return ApiResult.ok(Map.of("version",project.getVersion(),"approval_enabled",project.isApprovalEnabled(),"status",project.getStatus()),"project.settings.success");
+  }
+  @PostMapping("/projects/{id}/activate")
+  public ApiResult<?> activate(@PathVariable UUID id,@RequestHeader("If-Match") vn.smarttask.task.TaskVersion version) {
+    policy.requireProjectWrite(CurrentActor.userId(),id);var project=projects.activate(CurrentActor.userId(),id,version.value());
+    return ApiResult.ok(Map.of("id",id,"version",project.getVersion(),"status",project.getStatus()),"project.activate.success");
+  }
 
   private static long ifMatch(String v) {
     if (v == null) throw AppException.ifMatchRequired();

@@ -32,6 +32,7 @@ class F3ContractIT extends ItgBase {
         "password", "Secret123!", "display_name", "Pending One"));
     assertEquals(200, reg.getResponse().getStatus());
     String pendingId = json(reg).path("data").path("user_id").asText();
+    jdbc.update("update app_user set status='PENDING',active=false where id=?",UUID.fromString(pendingId));
 
     // EP-021 queue shows the pending account
     MvcResult queue = doGet("/api/v1/accounts", adminToken);

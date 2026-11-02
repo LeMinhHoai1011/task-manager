@@ -8,6 +8,7 @@ import vn.smarttask.notify.service.NotificationProcessor;
 /** {@code notification.*} -> persist via NotificationProcessor (no WS transport). */
 @Component
 public class NotificationOutboxHandler implements OutboxHandler {
+  @org.springframework.beans.factory.annotation.Autowired(required=false) private vn.smarttask.realtime.RealtimePublisher realtime;
   private final NotificationProcessor processor;
 
   public NotificationOutboxHandler(NotificationProcessor processor) {
@@ -24,6 +25,7 @@ public class NotificationOutboxHandler implements OutboxHandler {
 
   @Override
   public void handle(OutboxEvent event) {
-    processor.deliver(processor.parse(event.getPayload()));
+    var notification=processor.deliver(processor.parse(event.getPayload()));
+    if(notification!=null&&notification.getDeferredUntil()==null&&realtime!=null)realtime.user(notification.getUserId(),"NOTIFICATION_CREATED","USER",notification.getUserId(),notification.getId());
   }
 }

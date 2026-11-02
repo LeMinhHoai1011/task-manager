@@ -58,12 +58,13 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 @SpringBootTest
 @AutoConfigureMockMvc
 @TestPropertySource(properties = {
-    "spring.datasource.url=jdbc:postgresql://localhost:5433/smarttask_itg",
+    "spring.datasource.url=${SMARTTASK_IT_DATABASE_URL:jdbc:postgresql://localhost:5433/smarttask_itg}",
     "spring.datasource.username=stm_test",
     "spring.datasource.password=stm_test_pw",
     "spring.jpa.hibernate.ddl-auto=validate",
     "smarttask.bootstrap.admin-username=",
-    "smarttask.self-registration=true"})
+    "smarttask.self-registration=true",
+    "smarttask.workers.enabled=false"})
 public abstract class ItgBase {
 
   private static final AtomicLong SEQ = new AtomicLong(System.currentTimeMillis() % 100000);

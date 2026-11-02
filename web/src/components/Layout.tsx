@@ -5,6 +5,7 @@ import { t } from "../i18n";
 import { RealtimeIndicator } from "../realtime/RealtimeContext";
 import { ENABLE_AI } from "../config";
 import ReauthModal from "./ReauthModal";
+import NotificationBell from "./NotificationBell";
 
 export default function Layout({ children }: { children: ReactNode }) {
   const auth = useAuth();
@@ -26,6 +27,9 @@ export default function Layout({ children }: { children: ReactNode }) {
         <NavLink to="/dashboard" className="brand"><span className="brand-mark">S</span><span>SmartTask</span></NavLink>
         <p className="nav-group-label">KHÔNG GIAN LÀM VIỆC</p>
         {link("/dashboard", "Tổng quan", "⌂")}
+        {link("/my-tasks", "Việc của tôi", "✓")}
+        {link("/teams", "Nhóm", "♧")}
+        {link("/roles", "Vai trò dự án", "⚿")}
         {link("/workspaces", t("nav.workspaces"), "◫")}
         {link("/projects", t("nav.projects"), "▣")}
         {link("/tasks", t("nav.tasks"), "✓")}
@@ -48,7 +52,7 @@ export default function Layout({ children }: { children: ReactNode }) {
           {t("auth.logout")}
         </button></div>
       </nav>
-      <main className="app-main"><header className="app-header"><div><p className="text-xs font-medium text-slate-500">SMARTTASK / {title.toUpperCase()}</p><h1 className="sr-only">{title}</h1></div><div className="flex items-center gap-3"><span className="hidden text-sm text-slate-500 sm:inline">{auth.user?.email ?? ""}</span><span className="avatar" aria-label="Tài khoản">{(auth.user?.email ?? "U").slice(0, 1).toUpperCase()}</span></div></header><div className="app-content">
+      <main className="app-main"><header className="app-header"><div><p className="text-xs font-medium text-slate-500">SMARTTASK / {title.toUpperCase()}</p><h1 className="sr-only">{title}</h1></div><div className="flex items-center gap-3"><NotificationBell /><span className="hidden text-sm text-slate-500 sm:inline">{auth.user?.email ?? ""}</span><span className="avatar" aria-label="Tài khoản">{(auth.user?.email ?? "U").slice(0, 1).toUpperCase()}</span></div></header><div className="app-content">
         {auth.sessionNotice && (
           <div role="alert" className="notice mb-3 rounded-md border border-yellow-400 bg-yellow-50 p-2">
             {t(auth.sessionNotice)}

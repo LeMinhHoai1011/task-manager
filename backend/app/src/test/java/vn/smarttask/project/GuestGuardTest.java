@@ -43,6 +43,9 @@ public class GuestGuardTest {
     AppUser a = new AppUser(actor, "a", "a@x.io", "h", "A");
     a.setStatus("ACTIVE"); a.setActive(true);
     when(users.findById(actor)).thenReturn(Optional.of(a));
+    AppUser targetUser = new AppUser(target, "target", "target@x.io", "h", "Target");
+    targetUser.setStatus("ACTIVE"); targetUser.setActive(true);
+    when(users.findById(target)).thenReturn(Optional.of(targetUser));
     Project p = new Project(pid, wsId, "P", actor);
     when(projects.findById(pid)).thenReturn(Optional.of(p));
     when(members.findMembership(pid, actor))

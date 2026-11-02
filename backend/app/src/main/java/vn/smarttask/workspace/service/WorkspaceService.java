@@ -95,16 +95,49 @@ public class WorkspaceService {
       throw AppException.forbidden("Cannot invite members to a Personal Workspace");
     }
     requireRole(wsId, actorId, "OWNER", "ADMIN");
+    if(email==null||email.length()>254||!email.trim().matches("[^\\s@]+@[^\\s@]+")||!java.util.Set.of("ADMIN","MEMBER","GUEST","VIEWER").contains(role))throw AppException.badRequest("INVITATION_INVALID","Valid email and role required");
+    var target=users.findByEmailIgnoreCase(email.trim());
+    if(target.isPresent()&&members.findMembership(wsId,target.get().getId()).isPresent())throw AppException.stateConflict("ALREADY_MEMBER","Recipient is already a member");
     if (!"ACTIVE".equals(w.getStatus())) {
       audit.appendDenied(actorId, "workspace.invite", "workspace", wsId, "WS_NOT_ACTIVE");
       throw AppException.stateConflict("WS_NOT_ACTIVE", "Workspace not active");
     }
-    WorkspaceInvitation inv = new WorkspaceInvitation(UuidV7.generate(), wsId, email, role,
+    WorkspaceInvitation inv = new WorkspaceInvitation(UuidV7.generate(), wsId, email.trim(), role,
         TokenHash.sha256(UUID.randomUUID().toString()),
         OffsetDateTime.now(ZoneOffset.UTC).plusDays(daysValid));
     invitations.save(inv);
+    target.ifPresent(recipient->outbox.emit("workspace",wsId,"notification.workspace.invited","{\"user_id\":\""+recipient.getId()+"\",\"type\":\"WORKSPACE_INVITED\",\"scope_type\":\"SYSTEM\",\"title_key\":\"notification.workspace.invited\",\"deep_link\":\"/workspaces\",\"dedup_token\":\"invite:"+inv.getId()+"\"}"));
     audit.append(actorId, "workspace.invite", "workspace", wsId, "ALLOWED", null, "{}");
     return inv;
+  }
+  @Transactional(readOnly=true)
+  public java.util.List<java.util.Map<String,Object>> myInvitations(UUID actor,int page) {
+    var user=requireActive(actor);var result=new java.util.ArrayList<java.util.Map<String,Object>>();
+    for(var invitation:invitations.findByEmailIgnoreCaseAndStatus(user.getEmail(),"PENDING",org.springframework.data.domain.PageRequest.of(Math.max(page,0),20,org.springframework.data.domain.Sort.by("createdAt").descending().and(org.springframework.data.domain.Sort.by("id")))).getContent()) {
+      var workspace=workspaces.findById(invitation.getWorkspaceId()).orElse(null);
+      if(workspace==null||!"ACTIVE".equals(workspace.getStatus())||!invitation.getExpiresAt().isAfter(OffsetDateTime.now(ZoneOffset.UTC))||user.getCreatedAt().isAfter(invitation.getCreatedAt()))continue;
+      result.add(java.util.Map.of("id",invitation.getId(),"workspace_id",workspace.getId(),"workspace_name",workspace.getName(),"role",invitation.getRole(),"expires_at",invitation.getExpiresAt()));
+    }
+    return result;
+  }
+  @Transactional
+  public UUID acceptInvitation(UUID actor,UUID id) {
+    var user=requireActive(actor);
+    var invitation=invitations.findByIdForUpdate(id).filter(i->i.getEmail().equalsIgnoreCase(user.getEmail())).orElseThrow(()->AppException.notFound("Invitation not found"));
+    if(user.getCreatedAt().isAfter(invitation.getCreatedAt()))throw AppException.stateConflict("INVITATION_REISSUE_REQUIRED","Request a new invitation after registration");
+    if(invitation.isAccepted()) {
+      if(members.findMembership(invitation.getWorkspaceId(),actor).isPresent())return invitation.getWorkspaceId();
+      throw AppException.stateConflict("INVITATION_CONSUMED","Invitation already consumed");
+    }
+    if(!"PENDING".equals(invitation.getStatus())||!invitation.getExpiresAt().isAfter(OffsetDateTime.now(ZoneOffset.UTC)))throw AppException.stateConflict("INVITATION_EXPIRED","Invitation unavailable or expired");
+    var workspace=workspaces.findByIdForUpdate(invitation.getWorkspaceId()).orElseThrow(()->AppException.notFound("Workspace not found"));
+    if(!"ACTIVE".equals(workspace.getStatus())||!"TEAM".equals(workspace.getType()))throw AppException.stateConflict("WS_NOT_ACTIVE","Workspace unavailable");
+    if(!java.util.Set.of("ADMIN","MEMBER","GUEST","VIEWER").contains(invitation.getRole()))throw AppException.forbidden("Invalid invitation role");
+    var member=members.findByWorkspaceIdAndUserId(workspace.getId(),actor).orElseGet(()->new WorkspaceMembership(UuidV7.generate(),workspace.getId(),actor,invitation.getRole()));
+    if(!"ACTIVE".equals(member.getStatus())){member.setStatus("ACTIVE");member.setRole(invitation.getRole());}
+    members.save(member);invitation.setAccepted(true);invitation.setStatus("ACCEPTED");invitations.save(invitation);
+    audit.append(actor,"workspace.invitation.accept","workspace",workspace.getId(),"ALLOWED",null,"{}");outbox.emit("workspace",workspace.getId(),"workspace.member.joined","{}");
+    return workspace.getId();
   }
 
   /** F1 read paths: membership-scoped list (hides DELETED), get, rename, soft-delete. */

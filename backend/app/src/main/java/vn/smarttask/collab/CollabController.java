@@ -49,7 +49,7 @@ public class CollabController {
       @RequestHeader(value = "Idempotency-Key", required = false) String idem) {
     if (idem == null || idem.isBlank()) throw AppException.badRequest("IDEMPOTENCY_KEY_REQUIRED", "Idempotency-Key required");
     UUID actor = CurrentActor.userId();
-    policy.requireTaskWrite(actor, id, "comment.create", "comment:write");
+    policy.requireTaskExecution(actor, id, "comment.create");
     var c = comments.add(actor, id, (String) body.get("body"),
         body.get("parent_comment_id") == null ? null : UUID.fromString((String) body.get("parent_comment_id")));
     activity.append(id, null, actor, "COMMENT_ADDED", "{\"comment_id\":\"" + c.getId() + "\"}");

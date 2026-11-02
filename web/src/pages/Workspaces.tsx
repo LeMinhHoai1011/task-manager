@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { apiFetch, mutationOpts, newIdempotencyKey, unwrapPage } from "../api/client";
 import { t } from "../i18n";
 import { useRealtimeEvent } from "../realtime/RealtimeContext";
+import WorkspaceInvitations from "../components/WorkspaceInvitations";
 import { Button, Card, EmptyState, ErrorAlert, Spinner, TextInput } from "../components/ui";
 
 interface Workspace {
@@ -76,6 +77,7 @@ export default function Workspaces() {
           {t("workspaces.new")}
         </Button>
       </div>
+      <WorkspaceInvitations workspaces={items} onAccepted={()=>void load(null)}/>
       <div className="mt-3 flex gap-2 rounded-xl border border-slate-200 bg-white p-3">
         <TextInput className="max-w-sm" aria-label="Tìm kiếm không gian làm việc" placeholder="Tìm kiếm không gian làm việc…" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>

@@ -17,6 +17,8 @@ public class TaskAssignment {
   private UUID userId;
   @Column(name = "status", nullable = false)
   private String status = "ACTIVE";
+  @Column(name = "is_primary", nullable = false)
+  private boolean primary;
   @Column(name = "removal_reason")
   private String removalReason;
   @Column(name = "assigned_at", nullable = false)
@@ -34,6 +36,8 @@ public class TaskAssignment {
   public UUID getTaskId() { return taskId; }
   public UUID getUserId() { return userId; }
   public String getStatus() { return status; }
+  public boolean isPrimary() { return primary; }
+  public void setPrimary(boolean value) { primary = value; }
   public void setStatus(String v) { this.status = v; }
   public String getRemovalReason() { return removalReason; }
   public void setRemovalReason(String v) { this.removalReason = v; }

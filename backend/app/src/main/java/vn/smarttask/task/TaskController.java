@@ -22,6 +22,7 @@ import vn.smarttask.task.service.TaskService;
 @RestController
 @RequestMapping("/api/v1/tasks")
 public class TaskController {
+  @org.springframework.beans.factory.annotation.Autowired(required=false) private vn.smarttask.task.service.TaskCreationService creation;
 
   public record TaskDto(@JsonProperty("id") UUID id,
       @JsonProperty("project_id") UUID projectId,
@@ -29,7 +30,10 @@ public class TaskController {
       @JsonProperty("state") String state,
       @JsonProperty("blocked_flag") boolean blockedFlag,
       @JsonProperty("version") long version,
-      @JsonProperty("updated_at") OffsetDateTime updatedAt) {}
+      @JsonProperty("updated_at") OffsetDateTime updatedAt,
+      @JsonProperty("priority") String priority,
+      @JsonProperty("due_at") OffsetDateTime dueAt,
+      @JsonProperty("description") String description) {}
 
   private final TaskService service;
   private final PolicyEnforcer policy;
@@ -75,15 +79,20 @@ public class TaskController {
 
   private static TaskDto dto(Task t) {
     return new TaskDto(t.getId(), t.getProjectId(), t.getTitle(), t.getState(),
-        t.isBlockedFlag(), t.getVersion(), t.getUpdatedAt());
+        t.isBlockedFlag(), t.getVersion(), t.getUpdatedAt(),t.getPriority(),t.getDueAt(),t.getDescription());
   }
 
+  /** Java-call compatibility for existing controller consumers. */
+  public ResponseEntity<ApiResult<PageResponse<TaskDto>>> list(UUID projectId,UUID alias,String state,UUID assignee,String tag,Boolean blocked,Integer depth,Boolean overdue,String sort,String order,String cursor,int limit) {
+    return list(projectId,alias,state,null,assignee,tag,blocked,depth,overdue,sort,order,cursor,limit);
+  }
   @GetMapping
   @RequiresPermission("task:read")
   public ResponseEntity<ApiResult<PageResponse<TaskDto>>> list(
       @RequestParam(required = false) UUID projectId,
       @RequestParam(required = false, name = "project_id") UUID projectIdAlias,
       @RequestParam(required = false) String state,
+      @RequestParam(required = false) String priority,
       @RequestParam(required = false, name = "assignee_id") UUID assigneeId,
       @RequestParam(required = false) String tag,
       @RequestParam(required = false) Boolean blocked,
@@ -133,10 +142,12 @@ public class TaskController {
     for (Task t : candidates) {
       if (t.getDeletedAt() != null) continue;
       if (state != null && !state.equalsIgnoreCase(t.getState())) continue;
+      if (priority != null && !priority.equalsIgnoreCase(t.getPriority())) continue;
       if (blocked != null && blocked != t.isBlockedFlag()) continue;
       if (depth != null && depth != t.getDepth()) continue;
       // MEMBER/GUEST may only see tasks assigned to them.
-      if (actorIsMember && !assignments.existsByTaskIdAndUserId(t.getId(), actor)) continue;
+      try {policy.requireTaskRead(actor,t.getId());}
+      catch(AppException e){if(e.getHttpStatus().value()==403||e.getHttpStatus().value()==404)continue;throw e;}
       // F2.5: assignee/tag as EXISTS point queries (no entity load per row).
       if (assigneeId != null && !assignments.existsByTaskIdAndUserId(t.getId(), assigneeId)) continue;
       if (tag != null && !tags.existsByTaskIdAndTag(t.getId(), tag)) continue;
@@ -185,11 +196,12 @@ public class TaskController {
     UUID actor = CurrentActor.userId();
     UUID projectId = UUID.fromString((String) body.get("project_id"));
     policy.requireProjectWrite(actor, projectId);
-    Task t = service.create(actor,
-        projectId,
-        (String) body.get("title"), (String) body.get("description"),
-        (String) body.getOrDefault("priority", "MEDIUM"),
-        body.get("milestone_id") == null ? null : UUID.fromString((String) body.get("milestone_id")));
+    Task t;
+    if(creation==null)t=service.create(actor,projectId,(String)body.get("title"),(String)body.get("description"),(String)body.getOrDefault("priority","MEDIUM"),body.get("milestone_id")==null?null:UUID.fromString((String)body.get("milestone_id")));
+    else {
+      try {t=creation.create(actor,new vn.smarttask.task.service.TaskCreationService.Input(projectId,(String)body.get("title"),(String)body.get("description"),(String)body.getOrDefault("priority","MEDIUM"),body.get("milestone_id")==null?null:UUID.fromString((String)body.get("milestone_id")),body.get("due_date")==null?null:LocalDate.parse((String)body.get("due_date")),body.get("due_at")==null?null:OffsetDateTime.parse((String)body.get("due_at")),(String)body.get("due_timezone")),idem);}
+      catch(java.time.DateTimeException e){throw AppException.badRequest("SCHEDULE_INVALID","Invalid deadline");}
+    }
     return ResponseEntity.ok(ApiResult.ok(dto(t), "task.create.success"));
   }
 
@@ -276,7 +288,7 @@ public class TaskController {
       @RequestHeader(value = "Idempotency-Key", required = false) String idem) {
     requireIdem(idem);
     UUID actor = CurrentActor.userId();
-    policy.requireTaskWrite(actor, id);
+    policy.requireTaskExecution(actor,id,"task.timelog.add");
     service.logTime(actor, id, LocalDate.parse((String) body.get("work_date")),
         ((Number) body.get("minutes")).intValue(), (String) body.get("note"));
     return ResponseEntity.ok(ApiResult.ok(null, "task.timelog.add.success"));
@@ -345,6 +357,19 @@ public class TaskController {
             "position", c.getPosition()))
         .toList();
     return ResponseEntity.ok(ApiResult.ok(items, "task.checklist.success"));
+  }
+  public record ChecklistTick(boolean done){}
+  @PatchMapping("/{id}/checklist/{itemId}")
+  public ApiResult<?> tick(@PathVariable UUID id,@PathVariable UUID itemId,@RequestBody ChecklistTick body,@RequestHeader("If-Match") TaskVersion version) {
+    var actor=CurrentActor.userId();policy.requireTaskExecution(actor,id,"task.checklist.tick");
+    return ApiResult.ok(dto(service.tickChecklist(actor,id,itemId,body.done(),version.value())),"task.checklist.tick.success");
+  }
+  @GetMapping("/{id}/subtasks")
+  public ApiResult<?> subtasks(@PathVariable UUID id,@RequestParam(defaultValue="0") int page,@RequestParam(defaultValue="20") int size) {
+    var actor=CurrentActor.userId();policy.requireTaskRead(actor,id);
+    var rows=tasks.findByParentTaskIdAndDeletedAtIsNull(id,org.springframework.data.domain.PageRequest.of(Math.max(page,0),Math.max(1,Math.min(size,100)),org.springframework.data.domain.Sort.by("id")));
+    var items=rows.getContent().stream().filter(t->{try{policy.requireTaskRead(actor,t.getId());return true;}catch(AppException e){if(e.getHttpStatus().value()==403||e.getHttpStatus().value()==404)return false;throw e;}}).map(TaskController::dto).toList();
+    return ApiResult.ok(items,"task.subtasks.success");
   }
 
   @GetMapping("/{id}/timelogs")

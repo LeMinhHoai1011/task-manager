@@ -76,9 +76,9 @@ class CalendarReportRealReadTest {
 
   @Test
   void remindersReadRepoForActor() {
-    when(reminders.findByUserId(actor)).thenReturn(List.of(
+    when(reminders.findByUserId(org.mockito.ArgumentMatchers.eq(actor),org.mockito.ArgumentMatchers.any(org.springframework.data.domain.Pageable.class))).thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(
         new ReminderRule(UUID.randomUUID(), UUID.randomUUID(), actor,
-            OffsetDateTime.now(ZoneOffset.UTC).plusHours(1))));
+            OffsetDateTime.now(ZoneOffset.UTC).plusHours(1)))));
     var res = calendarController.reminders();
     assertEquals(1, res.getBody().data().size());
   }
@@ -90,6 +90,7 @@ class CalendarReportRealReadTest {
     Task undated = new Task(UUID.randomUUID(), pid, "no date", actor);
     // F2.5: actor-scoped project ids + project-scoped task read.
     when(projectMembers.findActiveProjectIdsByUser(actor)).thenReturn(List.of(pid));
+    when(assignments.existsByTaskIdAndUserId(t.getId(), actor)).thenReturn(true);
     when(tasks.findByProjectIdInAndDeletedAtIsNull(any())).thenReturn(List.of(t, undated));
 
     var res = calendarController.ics();
@@ -109,7 +110,6 @@ class CalendarReportRealReadTest {
 
   @Test
   void calendarUnknownViewIs400() {
-    when(projectMembers.findActiveProjectIdsByUser(actor)).thenReturn(List.of());
     AppException ex = assertThrows(AppException.class,
         () -> calendarController.calendar(null, null, "decade", null, null));
     assertEquals(400, ex.getHttpStatus().value());

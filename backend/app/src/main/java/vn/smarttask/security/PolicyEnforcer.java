@@ -26,6 +26,10 @@ import vn.smarttask.workspace.repo.WorkspaceRepository;
  */
 @Service
 public class PolicyEnforcer {
+  @org.springframework.beans.factory.annotation.Autowired(required=false) private GrantService grants;
+  private boolean delegated(UUID actor,UUID project,String permission) {
+    return grants!=null&&projectMembers.findMembership(project,actor).filter(m->"MEMBER".equals(m.getRole())).isPresent()&&grants.hasProjectPermission(actor,project,permission);
+  }
 
   private final AuthorizationPolicy policy;
   private final WorkspaceRepository workspaces;
@@ -83,6 +87,14 @@ public class PolicyEnforcer {
   }
 
   // ---------------------------------------------------------------- project
+  public void requireWorkspaceManagement(UUID actor, UUID workspaceId) {
+    requireWorkspaceRead(actor, workspaceId);
+    var ws = workspaces.findById(workspaceId).orElseThrow(() -> AppException.notFound("Workspace not found"));
+    boolean manages = wsMembers.findMembership(workspaceId, actor)
+        .map(m -> "OWNER".equals(m.getRole()) || "ADMIN".equals(m.getRole())).orElse(false);
+    decide(actor, workspaceId, "workspace", "workspace.team.write", "workspace:write",
+        true, manages, manages, new AuthorizationPolicy.EffectiveState(ws.getStatus(), null));
+  }
 
   public void requireProjectRead(UUID actor, UUID projectId) {
     var p = projects.findById(projectId)
@@ -115,6 +127,7 @@ public class PolicyEnforcer {
   public void requireTaskRead(UUID actor, UUID taskId) {
     var t = tasks.findById(taskId)
         .orElseThrow(() -> AppException.notFound("Task not found"));
+    if(t.getDeletedAt()!=null)throw AppException.notFound("Task not found");
     var scope = taskScope(actor, t.getProjectId(), taskId);
     decide(actor, taskId, "task", "task.read", "task:read",
         scope.hasRead(), scope.hasRead(), scope.hasRead(), scope.state());
@@ -124,13 +137,32 @@ public class PolicyEnforcer {
     requireTaskWrite(actor, taskId, "task.write", "task:write");
   }
 
+  /** Execution rights do not grant task metadata or assignment management. */
+  public void requireTaskExecution(UUID actor, UUID taskId, String action) {
+    var task = tasks.findById(taskId)
+        .orElseThrow(() -> AppException.notFound("Task not found"));
+    if(task.getProjectId()==null)throw AppException.notFound("Task not found");
+    var project = projects.findById(task.getProjectId())
+        .orElseThrow(() -> AppException.notFound("Task not found"));
+    var member = projectMembers.findMembership(task.getProjectId(), actor)
+        .filter(m -> "ACTIVE".equals(m.getStatus()));
+    boolean manager = member.map(m -> isProjectWriter(m.getRole())).orElse(false);
+    boolean assigned = assignments.findByTaskIdAndUserId(taskId, actor)
+        .filter(a -> "ACTIVE".equals(a.getStatus())).isPresent();
+    boolean executor = member.map(m -> "MEMBER".equals(m.getRole())).orElse(false) && assigned;
+    boolean visible = manager || (member.isPresent() && assigned);
+    decide(actor, taskId, "task", action, "task:write", visible,
+        manager || executor, manager || executor, stateOf(project));
+  }
+
   /** Write-like verbs (workflow transitions, approvals) share task write scope. */
   public void requireTaskWrite(UUID actor, UUID taskId, String action, String permission) {
     var t = tasks.findById(taskId)
         .orElseThrow(() -> AppException.notFound("Task not found"));
     var scope = taskScope(actor, t.getProjectId(), taskId);
+    boolean allowed=scope.canWrite() || ("task.write".equals(action)&&delegated(actor,t.getProjectId(),"TASK_METADATA_WRITE"));
     decide(actor, taskId, "task", action, permission,
-        scope.hasRead(), scope.canWrite(), scope.canWrite(), scope.state());
+        scope.hasRead(), allowed, allowed, scope.state());
   }
 
   /**
@@ -140,6 +172,7 @@ public class PolicyEnforcer {
   public void requireTaskManagerWrite(UUID actor, UUID taskId, String action, String permission) {
     var t = tasks.findById(taskId)
         .orElseThrow(() -> AppException.notFound("Task not found"));
+    if(t.getProjectId()==null)throw AppException.notFound("Task not found");
     var p = projects.findById(t.getProjectId())
         .orElseThrow(() -> AppException.notFound("Task not found"));
     if ("DELETED".equals(p.getStatus())) {
@@ -147,9 +180,10 @@ public class PolicyEnforcer {
       throw AppException.notFound("Task not found");
     }
     var m = projectMembers.findMembership(t.getProjectId(), actor);
-    boolean isWriter = m.map(x -> isProjectWriter(x.getRole())).orElse(false);
+    String delegatedPermission=switch(action){case "task.assign","task.unassign" -> "TASK_ASSIGNMENT_WRITE";case "task.update","task.deadline.set" -> "TASK_METADATA_WRITE";default -> "";};
+    boolean isWriter = m.map(x -> isProjectWriter(x.getRole())).orElse(false) || (!delegatedPermission.isEmpty()&&delegated(actor,t.getProjectId(),delegatedPermission));
     // hasRead: manager always has read. non-manager without membership: 404.
-    boolean hasRead = isWriter || m.isPresent();
+    boolean hasRead = taskScope(actor,t.getProjectId(),taskId).hasRead();
     decide(actor, taskId, "task", action, permission,
         hasRead, isWriter, isWriter, stateOf(p));
   }
@@ -160,6 +194,8 @@ public class PolicyEnforcer {
       AuthorizationPolicy.EffectiveState state) {}
 
   private Scope taskScope(UUID actor, UUID projectId, UUID taskId) {
+    // Personal tasks are served exclusively by the owner-scoped /me/tasks API.
+    if (projectId == null) throw AppException.notFound("Task not found");
     var p = projects.findById(projectId)
         .orElseThrow(() -> AppException.notFound("Task not found"));
     if ("DELETED".equals(p.getStatus())) {
@@ -167,12 +203,13 @@ public class PolicyEnforcer {
       throw AppException.notFound("Task not found");
     }
     var m = projectMembers.findMembership(projectId, actor);
-    boolean assigned = assignments.findByTaskIdAndUserId(taskId, actor).isPresent();
+    boolean assigned = assignments.findByTaskIdAndUserId(taskId, actor)
+        .filter(a -> "ACTIVE".equals(a.getStatus())).isPresent();
     boolean isWriter = m.map(x -> isProjectWriter(x.getRole())).orElse(false);
     // MANAGER/OWNER/ADMIN: doc + ghi tat ca task.
     // MEMBER (duoc giao): chi DOC task, khong duoc ghi (khong doi assignee/deadline/title).
     // GUEST: chi doc task duoc giao, khong duoc ghi.
-    boolean hasRead = isWriter || assigned;
+    boolean hasRead = m.isPresent() && (isWriter || assigned || delegated(actor,projectId,"TASK_METADATA_WRITE") || delegated(actor,projectId,"TASK_ASSIGNMENT_WRITE"));
     // canWrite chi cho project writer (MANAGER/OWNER/ADMIN); MEMBER/GUEST khong duoc write bat ke co assigned hay khong.
     boolean canWrite = isWriter;
     return new Scope(hasRead, canWrite, stateOf(p));

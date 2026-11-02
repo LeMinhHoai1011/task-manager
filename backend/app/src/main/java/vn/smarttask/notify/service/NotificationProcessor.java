@@ -32,6 +32,7 @@ import vn.smarttask.project.repo.ProjectMembershipRepository;
  */
 @Service
 public class NotificationProcessor {
+  @org.springframework.beans.factory.annotation.Autowired(required=false) private org.springframework.jdbc.core.JdbcTemplate scopeJdbc;
   private final NotificationRepository notifications;
   private final NotificationPreferenceRepository prefs;
   private final DeliveryAttemptRepository attempts;
@@ -103,6 +104,7 @@ public class NotificationProcessor {
 
     boolean scopeLost = "PROJECT".equals(d.scopeType()) && d.scopeId() != null
         && projectMembers.findMembership(d.scopeId(), d.userId()).isEmpty();
+    if("TEAM".equals(d.scopeType())&&scopeJdbc!=null)scopeLost=!Boolean.TRUE.equals(scopeJdbc.queryForObject("select exists(select 1 from team_member m join workspace_team t on t.id=m.team_id join workspace_membership w on w.workspace_id=t.workspace_id and w.user_id=m.user_id and w.status='ACTIVE' where m.team_id=? and m.user_id=? and m.status='ACTIVE')",Boolean.class,d.scopeId(),d.userId()));
 
     Notification n = new Notification(UuidV7.generate(), d.userId(), d.type());
     n.setSeverity(d.severity());
@@ -128,7 +130,7 @@ public class NotificationProcessor {
 
     // PUSH only when a live session backs it; revoked -> no push (permanent).
     boolean pushable = hasLiveSession(d);
-    if (pushable) {
+    if (pushable && !scopeLost && defer == null) {
       gateway.send(PushEmailGateway.Channel.PUSH, "user:" + d.userId(), d.titleKey(),
           d.correlationId() == null ? null : d.correlationId().toString());
       recordAttempt(n.getId(), "PUSH", "SENT", "STUB", d.correlationId());
@@ -198,7 +200,7 @@ public class NotificationProcessor {
   }
 
   /** Quiet-hours deferral (SECURITY_CRITICAL always immediate). */
-  OffsetDateTime quietDeferral(vn.smarttask.identity.entity.AppUser user, String severity) {
+  public OffsetDateTime quietDeferral(vn.smarttask.identity.entity.AppUser user, String severity) {
     if ("SECURITY_CRITICAL".equals(severity)) return null;
     if (user == null || !user.isQuietHoursEnabled()
         || user.getQuietStart() == null || user.getQuietEnd() == null) return null;

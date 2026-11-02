@@ -22,14 +22,68 @@ abstract class F21IntegrityBase {
 
   @Autowired JdbcTemplate jdbc;
   @Autowired Flyway flyway;
+  @Autowired vn.smarttask.task.repo.TaskRepository taskRepository;
+
+  @Test
+  void personalPrioritySortUsesBusinessOrderWithPagination() {
+    UUID owner = newUser("sort_" + UUID.randomUUID().toString().substring(0, 8));
+    for (String priority : java.util.List.of("LOW", "MEDIUM", "URGENT", "HIGH"))
+      jdbc.update("insert into task(id,title,scope,owner_user_id,priority) values (?,?,'PERSONAL',?,?)", UUID.randomUUID(), priority, owner, priority);
+    var service = new vn.smarttask.task.service.PersonalTaskService(taskRepository, null, null, null);
+    var first = service.search(owner, 0, 2, null, null, null, false, "priority", null, false);
+    var second = service.search(owner, 1, 2, null, null, null, false, "priority", null, false);
+    assertEquals(4, first.getTotalElements());
+    assertEquals(java.util.List.of("URGENT", "HIGH"), first.map(vn.smarttask.task.entity.Task::getPriority).getContent());
+    assertEquals(java.util.List.of("MEDIUM", "LOW"), second.map(vn.smarttask.task.entity.Task::getPriority).getContent());
+  }
+
+  @Test
+  void personalSummaryAndSearchAreScopedBeyondOnePage() {
+    UUID owner = newUser("sum_" + UUID.randomUUID().toString().substring(0, 8));
+    UUID other = newUser("other_" + UUID.randomUUID().toString().substring(0, 8));
+    UUID tagged = null;
+    for (int i = 0; i < 105; i++) {
+      UUID id = UUID.randomUUID();
+      jdbc.update("insert into task(id,title,scope,owner_user_id,due_at) values (?,?,'PERSONAL',?, now() - interval '1 day')", id, "Find me " + i, owner);
+      if (i == 0) tagged = id;
+    }
+    jdbc.update("insert into task(id,title,scope,owner_user_id) values (?,?,'PERSONAL',?)", UUID.randomUUID(), "Other private", other);
+    jdbc.update("insert into task_tag(id,task_id,tag) values (?,?,?)", UUID.randomUUID(), tagged, "urgent");
+    var service = new vn.smarttask.task.service.PersonalTaskService(taskRepository, null, null, null);
+    assertEquals(105L, service.summary(owner).get("total"));
+    assertEquals(105L, service.summary(owner).get("overdue"));
+    assertEquals(1L, service.summary(other).get("total"));
+    var page = service.search(owner, 0, 20, "Find me", null, null, false, "createdAt", null, true);
+    assertEquals(20, page.getContent().size());
+    assertEquals(105, page.getTotalElements());
+    var labelPage = service.search(owner, 0, 20, null, null, null, false, "createdAt", "urgent", false);
+    assertEquals(1, labelPage.getTotalElements());
+    assertEquals(tagged, labelPage.getContent().get(0).getId());
+    assertEquals(0, service.search(other, 0, 20, null, null, null, false, "createdAt", "urgent", false).getTotalElements());
+  }
 
   @Test
   void flywayReachesV12() {
     // F3: V12__f3_workers.sql (outbox relay + job lease + export worker) is the new head.
-    assertEquals("12", flyway.info().current().getVersion().getVersion());
+    assertEquals("16", flyway.info().current().getVersion().getVersion());
   }
 
   // ---- fixtures ----
+
+  @Test
+  void personalTaskHasOwnerWithoutProject() {
+    UUID owner = newUser("personal_" + UUID.randomUUID().toString().substring(0, 8));
+    UUID id = UUID.randomUUID();
+    assertEquals(1, jdbc.update("insert into task(id,title,scope,owner_user_id) values (?,?,?,?)",
+        id, "Private", "PERSONAL", owner));
+    assertNull(jdbc.queryForObject("select project_id from task where id=?", UUID.class, id));
+  }
+
+  @Test
+  void personalTaskWithoutOwnerIsRejected() {
+    assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(
+        "insert into task(id,title,scope) values (?,?,?)", UUID.randomUUID(), "Private", "PERSONAL"));
+  }
 
   private UUID newUser(String tag) {
     UUID id = UUID.randomUUID();

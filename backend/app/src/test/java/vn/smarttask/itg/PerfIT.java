@@ -49,6 +49,7 @@ class PerfIT extends ItgBase {
     var p = mkActiveProject(mgr.getId(), ws, prefix);
     addProjectMember(mgr.getId(), p.getId(), member.getId(), "MEMBER");
     var t = mkTask(mgr.getId(), p.getId(), prefix + " perf task");
+    taskAssigns.save(new TaskAssignment(UuidV7.generate(),t.getId(),member.getId()));
     return new Flow(mgr, member, loginToken(mgr.getUsername(), "Secret123!"),
         loginToken(member.getUsername(), "Secret123!"), p, t);
   }
@@ -61,6 +62,8 @@ class PerfIT extends ItgBase {
   @Test
   void unscopedTaskListIsScopedAndKeysetPaged() throws Exception {
     Flow f = flow("pf1");
+    var another=mkTask(f.mgr().getId(),f.project().getId(),"pf1 second assigned task");
+    taskAssigns.save(new TaskAssignment(UuidV7.generate(),another.getId(),f.member().getId()));
     // unscoped: visibility via indexed membership/assignment queries (no full scan)
     MvcResult all = doGet("/api/v1/tasks", f.memberToken());
     assertEquals(200, all.getResponse().getStatus());
@@ -79,8 +82,6 @@ class PerfIT extends ItgBase {
   @Test
   void taskFiltersKeepSemantics() throws Exception {
     Flow f = flow("pf2");
-    taskAssigns.save(new TaskAssignment(UuidV7.generate(), f.task().getId(),
-        f.member().getId()));
     taskTags.save(new TaskTag(UuidV7.generate(), f.task().getId(), "pftag"));
 
     MvcResult byAssignee = doGet("/api/v1/tasks?project_id=" + f.project().getId()
@@ -154,8 +155,6 @@ class PerfIT extends ItgBase {
   @Test
   void dashboardsExecuteLive() {
     Flow f = flow("pf6");
-    taskAssigns.save(new TaskAssignment(UuidV7.generate(), f.task().getId(),
-        f.member().getId()));
     var personal = reports.personalDashboard(f.member().getId());
     assertTrue(personal.containsKey("metrics"));
     var project = reports.projectDashboard(f.mgr().getId(), f.project().getId());
@@ -185,7 +184,8 @@ class PerfIT extends ItgBase {
   @Test
   void legacyIdCursorStillAccepted() throws Exception {
     Flow f = flow("pf8");
-    mkTask(f.mgr().getId(), f.project().getId(), "pf8 second task");
+    var another=mkTask(f.mgr().getId(), f.project().getId(), "pf8 second task");
+    taskAssigns.save(new TaskAssignment(UuidV7.generate(),another.getId(),f.member().getId()));
     MvcResult first = doGet("/api/v1/tasks?project_id=" + f.project().getId() + "&limit=1",
         f.memberToken());
     assertEquals(200, first.getResponse().getStatus());

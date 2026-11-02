@@ -104,10 +104,32 @@ main { padding: 16px; flex: 1; }
 }
 
 @media (max-width: 767px) {
-  .app-sidebar { width: 60px; padding: 8px; }
+  .app-sidebar { width: 60px; min-width: 60px; padding: 8px; }
   .brand { justify-content: center; padding: 8px 0; }
   .brand > span:last-child, .nav-link > span:last-child, .nav-group-label, .app-sidebar .btn { display: none; }
   .nav-link { justify-content: center; padding: 10px; font-size: 16px; }
   .app-header { padding-inline: 16px; }
   .app-content { padding: 16px; }
+}
+
+.personal-tasks input:not([type="checkbox"]), .personal-tasks select, .personal-tasks textarea {
+  max-width: 100%; min-width: 0; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; background: white;
+}
+.personal-tasks textarea { display: block; width: 100%; min-height: 90px; }
+.personal-tasks button { border-radius: 8px; padding: 7px 10px; }
+.personal-tasks button:not(.btn) { border: 1px solid #cbd5e1; background: white; }
+.personal-tasks button:disabled { opacity: .5; }
+.personal-tasks :focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+.personal-tasks li { overflow-wrap: anywhere; }
+.teams-page form { display:flex; align-items:flex-end; flex-wrap:wrap; gap:12px; margin-block:12px; }
+.teams-page label { display:flex; flex-direction:column; gap:6px; min-width:0; max-width:100%; }
+.teams-page input,.teams-page select { width:100%; }
+.teams-page .card { padding:16px; }
+.teams-page h2 { font-weight:600; font-size:1.1rem; }
+.card { min-width:0; }
+@media (max-width: 767px) {
+  .personal-tasks form { flex-wrap: wrap; }
+  .personal-tasks label { max-width: 100%; }
+  .personal-tasks .page-title { font-size: 1.4rem; }
+  .app-sidebar [role="status"] { font-size: 9px; overflow-wrap: anywhere; }
 }

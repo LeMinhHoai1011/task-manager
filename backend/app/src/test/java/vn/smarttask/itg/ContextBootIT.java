@@ -22,9 +22,10 @@ class ContextBootIT extends ItgBase {
   }
 
   @Test
-  void flywayVersionIs12() {
-    // F3: V12__f3_workers.sql (outbox relay + job lease + export worker) is the new head.
-    assertEquals("12", flyway.info().current().getVersion().getVersion());
+  void flywayVersionIs16() {
+    // V2 additive migrations V13–V16 extend personal tasks, teams and assignments.
+    assertEquals("16", flyway.info().current().getVersion().getVersion());
+    assertTrue(flyway.validateWithResult().validationSuccessful);
   }
 
   @Test

@@ -54,7 +54,26 @@ public class GrantService {
   @Transactional(readOnly = true)
   public boolean hasGrant(UUID userId, String grant) {
     if (userId == null || grant == null || grants == null) return false;
-    return !grants.findLive(userId, grant).isEmpty();
+    return grants.findLive(userId,grant).stream().anyMatch(g->"GLOBAL".equals(g.getScopeType())&&g.getScopeId()==null);
+  }
+
+  /** Project custom roles reuse live grant rows; they never confer global authority. */
+  @Transactional(readOnly=true)
+  public boolean hasProjectPermission(UUID userId,UUID projectId,String code) {
+    return grants!=null && grants.findLive(userId,code).stream().anyMatch(g->"PROJECT".equals(g.getScopeType())&&projectId.equals(g.getScopeId()));
+  }
+
+  @Transactional
+  public void replaceProjectRole(UUID actor,UUID target,UUID project,String name,java.util.Set<String> permissions) {
+    // Caller must establish project-manager authority and active non-Guest participation.
+    for(String code:java.util.Set.of("TASK_METADATA_WRITE","TASK_ASSIGNMENT_WRITE")) {
+      for(var grant:grants.findLive(target,code))if("PROJECT".equals(grant.getScopeType())&&project.equals(grant.getScopeId())) {
+        grant.setRevokedAt(OffsetDateTime.now(ZoneOffset.UTC));grants.save(grant);
+      }
+    }
+    grants.flush();
+    for(String code:permissions)grants.save(new GlobalPermissionGrant(UuidV7.generate(),target,code,"PROJECT",project,actor,"CUSTOM_ROLE:"+name,null));
+    audit.append(actor,"project.custom_role.set","project",project,"ALLOWED",null,"{}");
   }
 
   /** SA check: live {@code SYSTEM_ADMIN} grant. */

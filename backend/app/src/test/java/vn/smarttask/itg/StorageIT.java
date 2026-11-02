@@ -97,6 +97,8 @@ class StorageIT extends ItgBase {
     var p = mkActiveProject(mgr.getId(), ws, prefix);
     addProjectMember(mgr.getId(), p.getId(), member.getId(), "MEMBER");
     var t = mkTask(mgr.getId(), p.getId(), prefix + " file task");
+    // V2 Members must be assigned before accessing a task's attachments.
+    assignments.save(new vn.smarttask.task.entity.TaskAssignment(UuidV7.generate(),t.getId(),member.getId()));
     return new Flow(mgr, member, loginToken(mgr.getUsername(), "Secret123!"),
         loginToken(member.getUsername(), "Secret123!"), p, t);
   }

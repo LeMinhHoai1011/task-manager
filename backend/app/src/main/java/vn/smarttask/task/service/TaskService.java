@@ -28,6 +28,12 @@ import vn.smarttask.workspace.repo.WorkspaceRepository;
 /** PH-2 TaskService: manual (no-AI) task & collaboration primitives. */
 @Service
 public class TaskService {
+  @org.springframework.beans.factory.annotation.Autowired(required=false) private vn.smarttask.security.GrantService grants;
+  private boolean assignmentManager(vn.smarttask.project.entity.ProjectMembership member,UUID project,UUID actor) {
+    return java.util.Set.of("OWNER","ADMIN","MANAGER").contains(member.getRole()) || ("MEMBER".equals(member.getRole())&&grants!=null&&grants.hasProjectPermission(actor,project,"TASK_ASSIGNMENT_WRITE"));
+  }
+  @org.springframework.beans.factory.annotation.Autowired(required = false)
+  private org.springframework.jdbc.core.JdbcTemplate teamScopeJdbc;
   private final TaskRepository tasks;
   private final ProjectRepository projects;
   private final ProjectMembershipRepository projectMembers;
@@ -126,7 +132,8 @@ public class TaskService {
       audit.appendDenied(actorId, "task.create", "task", null, "MEMBER_CREATE_DENIED");
       throw AppException.forbidden("Member task creation not allowed");
     }
-    if (title == null || title.isBlank()) throw AppException.badRequest("TITLE_REQUIRED", "Title required");
+    if (title == null || title.isBlank() || title.trim().length()>200) throw AppException.badRequest("TITLE_REQUIRED", "Title must contain 1–200 characters");
+    if(priority!=null&&!java.util.Set.of("LOW","MEDIUM","HIGH","URGENT").contains(priority))throw AppException.badRequest("PRIORITY_INVALID","Invalid priority");
     Task t = new Task(UuidV7.generate(), projectId, title.trim(), actorId);
     t.setDescription(description);
     if (priority != null) t.setPriority(priority);
@@ -168,7 +175,8 @@ public class TaskService {
   @Transactional
   public Task updateContent(UUID actorId, UUID taskId, String title, String description, long expectedVersion) {
     requireActiveUser(actorId);
-    Task t = requireTask(taskId);
+    Task t = tasks.findByIdForUpdate(taskId).orElseThrow(() -> AppException.notFound("Task not found"));
+    if (t.getDeletedAt() != null) throw AppException.notFound("Task not found");
     requireParticipation(t.getProjectId(), actorId, "task.update");
     checkVersion(t, expectedVersion);
     requireNotLocked(t, "task.update", actorId);
@@ -187,7 +195,8 @@ public class TaskService {
   public Task setDeadline(UUID actorId, UUID taskId, LocalDate dateOnly, OffsetDateTime instant,
       String timezone, long expectedVersion) {
     requireActiveUser(actorId);
-    Task t = requireTask(taskId);
+    Task t = tasks.findByIdForUpdate(taskId).orElseThrow(() -> AppException.notFound("Task not found"));
+    if (t.getDeletedAt() != null) throw AppException.notFound("Task not found");
     requireParticipation(t.getProjectId(), actorId, "task.deadline.set");
     checkVersion(t, expectedVersion);
     requireNotLocked(t, "task.deadline.set", actorId);
@@ -219,21 +228,29 @@ public class TaskService {
   @Transactional
   public TaskAssignment assign(UUID actorId, UUID taskId, UUID targetId, long expectedVersion) {
     requireActiveUser(actorId);
-    Task t = requireTask(taskId);
+    Task t = tasks.findByIdForUpdate(taskId).orElseThrow(()->AppException.notFound("Task not found"));
+    if (teamScopeJdbc != null && !Boolean.TRUE.equals(teamScopeJdbc.queryForObject(
+        "select not exists(select 1 from task_team tt where tt.task_id=? and not exists(select 1 from team_member tm where tm.team_id=tt.team_id and tm.user_id=? and tm.status='ACTIVE'))",
+        Boolean.class, taskId, targetId)))
+      throw AppException.stateConflict("NOT_TEAM_MEMBER", "Target must belong to the linked Team");
     checkVersion(t, expectedVersion);
-    if ("PENDING_APPROVAL".equals(t.getState())) {
-      audit.appendDenied(actorId, "task.assign", "task", taskId, "EXECUTION_LOCKED");
-      throw AppException.executionLocked("EXECUTION_LOCKED", "Task locked pending approval");
-    }
-    requireParticipation(t.getProjectId(), actorId, "task.assign");
+    requireNotLocked(t,"task.assign",actorId);
+    requireWritableProject(t.getProjectId());
+    var manager=requireParticipation(t.getProjectId(), actorId, "task.assign");
+    if (!assignmentManager(manager,t.getProjectId(),actorId)) throw AppException.forbidden("Task manager required");
+    requireActiveUser(targetId);
     // target must have project participation (any ACTIVE role incl. GUEST? spec: participation; keep ACTIVE any role)
     projectMembers.findMembership(t.getProjectId(), targetId)
         .orElseThrow(() -> AppException.stateConflict("NOT_PROJECT_MEMBER", "Target must be project member"));
     var existing = assignments.findByTaskIdAndUserId(taskId, targetId).orElse(null);
     if (existing != null) {
+      if (!"ACTIVE".equals(existing.getStatus())) existing.setPrimary(false);
       existing.setStatus("ACTIVE");
       existing.setRemovalReason(null);
       assignments.save(existing);
+      t.setVersion(t.getVersion()+1);tasks.save(t);
+      audit.append(actorId,"task.assign","task",taskId,"ALLOWED",null,"{}");
+      outbox.emit("task",taskId,"task.assigned","{\"user_id\":\""+targetId+"\"}");
       return existing;
     }
     TaskAssignment a = new TaskAssignment(UuidV7.generate(), taskId, targetId);
@@ -248,15 +265,22 @@ public class TaskService {
 
   @Transactional
   public void unassign(UUID actorId, UUID taskId, UUID targetId, String reason, long expectedVersion) {
-    Task t = requireTask(taskId);
+    requireActiveUser(actorId);
+    Task t = tasks.findByIdForUpdate(taskId).orElseThrow(()->AppException.notFound("Task not found"));
     checkVersion(t, expectedVersion);
-    requireParticipation(t.getProjectId(), actorId, "task.unassign");
+    requireWritableProject(t.getProjectId());
+    var manager=requireParticipation(t.getProjectId(), actorId, "task.unassign");
+    if (!assignmentManager(manager,t.getProjectId(),actorId)) throw AppException.forbidden("Task manager required");
     requireNotLocked(t, "task.unassign", actorId);
     var a = assignments.findByTaskIdAndUserId(taskId, targetId)
         .orElseThrow(() -> AppException.notFound("Assignment not found"));
+    if (a.isPrimary() && assignments.countByTaskIdAndStatus(taskId, "ACTIVE") > 1)
+      throw AppException.stateConflict("PRIMARY_TRANSFER_REQUIRED", "Transfer responsibility before removing primary assignee");
+    a.setPrimary(false);
     a.setStatus("REMOVED");
     a.setRemovalReason(reason);
     assignments.save(a);
+    t.setVersion(t.getVersion()+1);tasks.save(t);
     audit.append(actorId, "task.unassign", "task", taskId, "ALLOWED", null, "{}");
     if (realtime != null) realtime.project(t.getProjectId(), "TASK_UNASSIGNED", taskId);
   }
@@ -281,6 +305,17 @@ public class TaskService {
     return t;
   }
 
+  @Transactional
+  public Task tickChecklist(UUID actor,UUID id,UUID item,boolean done,long expected) {
+    requireActiveUser(actor);
+    var task=tasks.findByIdForUpdate(id).orElseThrow(()->AppException.notFound("Task not found"));
+    requireWritableProject(task.getProjectId());var member=requireParticipation(task.getProjectId(),actor,"task.checklist.tick");
+    if(!java.util.Set.of("OWNER","ADMIN","MANAGER").contains(member.getRole()) && !("MEMBER".equals(member.getRole())&&assignments.findByTaskIdAndUserId(id,actor).filter(a->"ACTIVE".equals(a.getStatus())).isPresent()))throw AppException.forbidden("Assigned executor required");
+    checkVersion(task,expected);requireNotLocked(task,"task.checklist.tick",actor);
+    var row=checklist.findById(item).filter(c->id.equals(c.getTaskId())).orElseThrow(()->AppException.notFound("Checklist item not found"));
+    row.setDone(done);checklist.save(row);task.setVersion(task.getVersion()+1);tasks.save(task);
+    audit.append(actor,"task.checklist.tick","task",id,"ALLOWED",null,"{}");signal(task,"TASK_CHECKLIST_CHANGED");return task;
+  }
   @Transactional
   public ChecklistItem addChecklist(UUID actorId, UUID taskId, String title) {
     requireActiveUser(actorId);

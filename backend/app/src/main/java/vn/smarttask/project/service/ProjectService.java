@@ -80,13 +80,26 @@ public class ProjectService {
   private ProjectMembership requireManager(UUID projectId, UUID userId) {
     ProjectMembership m = members.findMembership(projectId, userId)
         .orElseThrow(() -> AppException.notFound("Project not found"));
-    if (!"MANAGER".equals(m.getRole())) {
+    if (!java.util.Set.of("MANAGER","OWNER","ADMIN").contains(m.getRole())) {
       audit.appendDenied(userId, "project.manage", "project", projectId, "FORBIDDEN");
       throw AppException.forbidden("Project manager required");
     }
     return m;
   }
 
+  @Transactional
+  public Project activate(UUID actor,UUID id,long expected) {
+    requireActive(actor);
+    var project=projects.findByIdForUpdate(id).orElseThrow(()->AppException.notFound("Project not found"));
+    requireManager(id,actor);
+    var workspace=workspaces.findById(project.getWorkspaceId()).orElseThrow(()->AppException.notFound("Workspace not found"));
+    if(!"ACTIVE".equals(workspace.getStatus()))throw AppException.stateConflict("WS_NOT_ACTIVE","Workspace must be active");
+    if(project.getVersion()!=expected)throw AppException.versionConflict("Stale project version",project.getVersion());
+    if(!"PLANNING".equals(project.getStatus()))throw AppException.stateConflict("PROJECT_NOT_PLANNING","Only Planning projects can activate");
+    project.setPreviousStatus("PLANNING");project.setStatus("ACTIVE");projects.saveAndFlush(project);
+    audit.append(actor,"project.activate","project",id,"ALLOWED",null,"{}");outbox.emit("project",id,"project.activated","{}");signalProject(id,"PROJECT_ACTIVATED",id);
+    return project;
+  }
   @Transactional
   public Project create(UUID creatorId, UUID workspaceId, String name, String description) {
     requireActive(creatorId);
@@ -123,6 +136,11 @@ public class ProjectService {
     if (!target.isActive() || !"ACTIVE".equals(target.getStatus())) {
       audit.appendDenied(actorId, "project.member.add", "project", projectId, "TARGET_NOT_ACTIVE");
       throw AppException.stateConflict("TARGET_NOT_ACTIVE", "Target account must be ACTIVE");
+    }
+    if ("MANAGER".equals(role) && wsMembers.findMembership(p.getWorkspaceId(), targetId)
+        .filter(m -> "ACTIVE".equals(m.getStatus()) && "GUEST".equals(m.getRole())).isPresent()) {
+      audit.appendDenied(actorId, "project.member.add", "project", projectId, "GUEST_GUARD");
+      throw AppException.forbidden("Workspace guest cannot manage a project");
     }
     // no duplicate membership
     if (members.findByProjectIdAndUserId(projectId, targetId).isPresent()) {

@@ -12,7 +12,7 @@ import org.springframework.test.context.TestPropertySource;
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @TestPropertySource(properties = {
-    "spring.datasource.url=jdbc:postgresql://localhost:5433/smarttask_f21",
+    "spring.datasource.url=${SMARTTASK_F21_DATABASE_URL:jdbc:postgresql://localhost:5433/smarttask_f21}",
     "spring.datasource.username=stm_test",
     "spring.datasource.password=stm_test_pw"
 })

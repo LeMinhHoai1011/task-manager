@@ -96,6 +96,7 @@ class WorkflowIT extends ItgBase {
     String aTok = token(w.approver());
     String mTok = token(w.member());
     var task = mkTask(w.submitter().getId(), w.project().getId(), "itgw3 reopen");
+    tasks.assign(w.submitter().getId(),task.getId(),w.member().getId(),task.getVersion());
     workflow.start(w.submitter().getId(), task.getId(), version(task.getId()));
     workflow.submit(w.submitter().getId(), task.getId(), version(task.getId()));
     workflow.approve(w.approver().getId(), task.getId(), version(task.getId()));

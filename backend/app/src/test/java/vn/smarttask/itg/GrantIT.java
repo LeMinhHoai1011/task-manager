@@ -24,6 +24,13 @@ import vn.smarttask.security.entity.GlobalPermissionGrant;
  * level plus the HTTP approve gate).
  */
 class GrantIT extends ItgBase {
+  @Test void scopedGrantNeverConfersGlobalAdministration() {
+    var admin=activeUser("scopeadmin","Secret123!");var target=activeUser("scopetarget","Secret123!");
+    grants.grantBootstrap(admin.getId(),GrantService.SYSTEM_ADMIN);
+    grants.grant(admin.getId(),target.getId(),GrantService.SYSTEM_ADMIN,"PROJECT",UUID.randomUUID(),"Scoped test grant",null);
+    assertFalse(grants.isSystemAdmin(target.getId()));
+    assertFalse(grants.hasGrant(target.getId(),GrantService.SYSTEM_ADMIN));
+  }
 
   @Test
   void bootstrapGrantsOnlyConfiguredUserOnce() {
@@ -55,11 +62,12 @@ class GrantIT extends ItgBase {
     jdbc.update("delete from global_permission_grant");
     jdbc.update("delete from system_setting where key='bootstrap_completed'");
 
-    // Self-registration leaves the account PENDING: before the first SA there is
-    // no approver grant, so the documented local bootstrap must activate it.
+    // Public self-registration is ACTIVE in the current product. Build an
+    // explicit legacy PENDING fixture to test bootstrap activation independently.
     var pending = identity.register("itgbp_" + tag(), "itgbp_" + tag() + "@itg.io",
         "Secret123!", "Bootstrap Pending");
-    assertEquals("PENDING", pending.getStatus());
+    var pendingRow=users.findById(pending.getId()).orElseThrow();
+    pendingRow.setStatus("PENDING");pendingRow.setActive(false);users.save(pendingRow);
 
     BootstrapRunner runner = new BootstrapRunner(
         settingRepo(), grantsRepo(), users, grants, pending.getUsername(), identity);

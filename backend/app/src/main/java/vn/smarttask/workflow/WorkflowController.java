@@ -68,7 +68,7 @@ public class WorkflowController {
       @RequestHeader(value = "Idempotency-Key", required = false) String key) {
     requireIdem(key);
     UUID actor = CurrentActor.userId();
-    policy.requireTaskWrite(actor, id, "workflow.start", "task:write");
+    policy.requireTaskExecution(actor, id, "workflow.start");
     String from = fromStateOf(id);
     Task t = service.start(actor, id, ifMatch(ifMatch));
     return ResponseEntity.ok(ApiResult.ok(res(t, from, "T-01"), "workflow.start.success"));
@@ -81,7 +81,7 @@ public class WorkflowController {
       @RequestHeader(value = "Idempotency-Key", required = false) String key) {
     requireIdem(key);
     UUID actor = CurrentActor.userId();
-    policy.requireTaskWrite(actor, id, "workflow.submit", "task:write");
+    policy.requireTaskExecution(actor, id, "workflow.submit");
     String from = fromStateOf(id);
     var r = service.submit(actor, id, ifMatch(ifMatch));
     String tid = r.round() == null ? "T-03" : "T-02";

@@ -10,6 +10,9 @@ import Workspaces from "./pages/Workspaces";
 import Dashboard from "./pages/Dashboard";
 import Projects from "./pages/Projects";
 import Tasks from "./pages/Tasks";
+import MyTasks from "./pages/MyTasks";
+import Teams from "./pages/Teams";
+import ProjectRoles from "./pages/ProjectRoles";
 import TaskDetail from "./pages/TaskDetail";
 import Files from "./pages/Files";
 import Calendar from "./pages/Calendar";
@@ -39,6 +42,9 @@ export default function App() {
                     <Route path="/workspaces" element={<Workspaces />} />
                     <Route path="/projects" element={<Projects />} />
                     <Route path="/tasks" element={<Tasks />} />
+                    <Route path="/my-tasks" element={<MyTasks />} />
+                    <Route path="/teams" element={<Teams />} />
+                    <Route path="/roles" element={<ProjectRoles />} />
                     <Route path="/tasks/:id" element={<TaskDetail />} />
                     <Route path="/files" element={<Files />} />
                     <Route path="/calendar" element={<Calendar />} />

@@ -16,6 +16,12 @@ import vn.smarttask.reports.service.ExportWorker;
 @ConditionalOnProperty(name = "smarttask.workers.enabled", havingValue = "true",
     matchIfMissing = true)
 public class WorkerSchedulers {
+  @org.springframework.beans.factory.annotation.Autowired private vn.smarttask.calendar.service.ReminderDispatcher reminders;
+  @org.springframework.beans.factory.annotation.Autowired private vn.smarttask.notify.service.NotificationService notificationService;
+  @Scheduled(fixedDelay=30000)
+  public void releaseQuietHours(){notificationService.releaseDeferred();}
+  @Scheduled(fixedDelay=30000)
+  public void dispatchReminders(){reminders.dispatch();}
   private final OutboxRelay outboxRelay;
   private final JobRunner jobRunner;
   private final JobService jobs;

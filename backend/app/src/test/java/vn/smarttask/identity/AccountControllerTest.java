@@ -60,8 +60,6 @@ class AccountControllerTest {
     doNothing().when(identity).revokeAllSessions(any());
     when(users.findById(id)).thenReturn(Optional.of(u));
     when(users.save(any())).thenAnswer(i -> i.getArgument(0));
-    when(sessions.findByUserIdAndActiveTrue(id)).thenReturn(java.util.List.of());
-    when(refreshTokens.findBySessionId(any())).thenReturn(java.util.List.of());
 
     var res = controller.lock(id, null);
 
