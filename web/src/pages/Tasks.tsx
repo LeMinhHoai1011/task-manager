@@ -4,7 +4,7 @@ import { apiFetch, unwrapPage, unwrapData, mutationOpts, newIdempotencyKey } fro
 import { t } from "../i18n";
 import { useRealtimeEvent } from "../realtime/RealtimeContext";
 import CreateProjectTask from "../components/CreateProjectTask";
-import { Badge, Button, Card, EmptyState, ErrorAlert, Select, Spinner, TextInput } from "../components/ui";
+import { Badge, Button, Card, EmptyState, ErrorAlert, Select, Spinner, TextInput, stateLabel } from "../components/ui";
 
 // Filter: state/project/assignee/tag/blocked/depth/overdue + sort allowlist + cursor.
 const SORT_ALLOW = ["created_at", "updated_at", "due_at", "priority"] as const;
@@ -30,6 +30,13 @@ export default function Tasks() {
   const [priority,setPriority]=useState("");
   const [project, setProject] = useState(() => params.get("project") ?? "");
   const [assignee, setAssignee] = useState("");
+  const [assigneeDraft,setAssigneeDraft]=useState("");
+  const [projects,setProjects]=useState<{id:string;name:string}[]>([]);
+  const [projectCursor,setProjectCursor]=useState<string|null>(null);
+  const [projectError,setProjectError]=useState("");
+  const [projectLoading,setProjectLoading]=useState(false);
+  async function loadProjects(cursor?:string|null){setProjectLoading(true);setProjectError("");try{const page=unwrapPage<{id:string;name:string}>(await apiFetch("/projects",{query:{limit:20,cursor:cursor??undefined}}));setProjects(old=>cursor?[...old,...page.items]:page.items);setProjectCursor(page.nextCursor);}catch{setProjectError("Không tải được bộ chọn dự án.");}finally{setProjectLoading(false);}}
+  useEffect(()=>{void loadProjects();},[]);
   const [tag, setTag] = useState("");
   const [blocked, setBlocked] = useState("");
   const [depth, setDepth] = useState("");
@@ -113,17 +120,19 @@ export default function Tasks() {
     <div className="mx-auto max-w-6xl">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h1 className="page-title">{t("nav.tasks")}</h1><p className="page-subtitle">Theo dõi và sắp xếp công việc trong phạm vi bạn được cấp quyền.</p></div><div className="segmented" role="group" aria-label="Chế độ hiển thị"><button className={view === "list" ? "segmented-active" : ""} onClick={() => setView("list")}>Danh sách</button><button className={view === "kanban" ? "segmented-active" : ""} onClick={() => setView("kanban")}>Kanban</button></div></div>
       <div className="toolbar-sticky filters rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-        <Select aria-label="Lọc ưu tiên" value={priority} onChange={e=>setPriority(e.target.value)}><option value="">Mọi độ ưu tiên</option>{["URGENT","HIGH","MEDIUM","LOW"].map(p=><option key={p}>{p}</option>)}</Select>
+        <Select aria-label="Lọc ưu tiên" value={priority} onChange={e=>setPriority(e.target.value)}><option value="">Mọi độ ưu tiên</option>{["URGENT","HIGH","MEDIUM","LOW"].map(p=><option key={p} value={p}>{({URGENT:"Khẩn cấp",HIGH:"Cao",MEDIUM:"Trung bình",LOW:"Thấp"} as Record<string,string>)[p]}</option>)}</Select>
         <Select aria-label={t("tasks.filter_state")} value={state} onChange={(e) => setState(e.target.value)}>
           <option value="">{`${t("tasks.filter_state")}: ${t("common.all")}`}</option>
           {STATE_OPTIONS.map((s) => (
             <option key={s} value={s}>
-              {s}
+              {stateLabel(s)}
             </option>
           ))}
         </Select>
-        <TextInput className="!w-32" placeholder="Mã dự án" aria-label={t("tasks.filter_project")} value={project} onChange={(e) => setProject(e.target.value)} />
-        <TextInput className="!w-32" placeholder="Mã người phụ trách" aria-label={t("tasks.filter_assignee")} value={assignee} onChange={(e) => setAssignee(e.target.value)} />
+        <Select aria-label={t("tasks.filter_project")} value={project} disabled={projectLoading} onChange={e=>setProject(e.target.value)}><option value="">Tất cả dự án</option>{project&&!projects.some(p=>p.id===project)&&<option value={project}>Dự án đang chọn</option>}{projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</Select>
+        {projectCursor&&<Button variant="ghost" disabled={projectLoading} onClick={()=>void loadProjects(projectCursor)}>Tải thêm dự án</Button>}
+        {projectError&&<button onClick={()=>void loadProjects()} className="text-xs text-primary">{projectError} Thử lại</button>}
+        <form className="assignee-filter" onSubmit={e=>{e.preventDefault();setAssignee(assigneeDraft.trim());}}><TextInput className="!w-44" placeholder="ID người phụ trách" title="Nhập UUID người phụ trách hoặc để trống để bỏ lọc" aria-label={t("tasks.filter_assignee")} pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}" value={assigneeDraft} onChange={e=>setAssigneeDraft(e.target.value)}/><Button variant="secondary" type="submit">Lọc người phụ trách</Button></form>
         <TextInput className="!w-28" placeholder={t("tasks.filter_tag")} aria-label={t("tasks.filter_tag")} value={tag} onChange={(e) => setTag(e.target.value)} />
         <Select aria-label={t("tasks.filter_blocked")} value={blocked} onChange={(e) => setBlocked(e.target.value)}>
           <option value="">{`${t("tasks.filter_blocked")} ${t("common.all")}`}</option>
@@ -143,13 +152,13 @@ export default function Tasks() {
         <Select value={sort} onChange={(e) => setSort(e.target.value as SortKey)}>
           {SORT_ALLOW.map((s) => (
             <option key={s} value={s}>
-              {s}
+              {{created_at:"Ngày tạo",updated_at:"Cập nhật gần đây",due_at:"Hạn hoàn thành",priority:"Độ ưu tiên"}[s]}
             </option>
           ))}
         </Select>
         <Select value={order} onChange={(e) => setOrder(e.target.value as "asc" | "desc")}>
-          <option value="asc">asc</option>
-          <option value="desc">desc</option>
+          <option value="asc">Tăng dần</option>
+          <option value="desc">Giảm dần</option>
         </Select>
       </div>
       <CreateProjectTask onCreated={()=>void load(null)}/>
@@ -168,13 +177,13 @@ export default function Tasks() {
       ) : items.length === 0 ? (
         <EmptyState title={t("tasks.empty_title")} description={t("tasks.empty_desc")} />
       ) : view === "list" ? (
-        <Card className="mt-4 overflow-x-auto !p-0"><table className="table min-w-[700px]"><thead><tr><th>Công việc</th><th>Trạng thái</th><th>Hạn hoàn thành</th><th>Trở ngại</th></tr></thead><tbody>{items.map((it) => { const due = it.deadline ?? it.due_at; const blockedTask = it.blocked ?? it.blocked_flag ?? false; return <tr key={it.id}><td><Link to={`/tasks/${it.id}`} className="font-medium text-slate-900 hover:text-primary">{it.title}</Link></td><td><Badge state={it.state}>{it.state}</Badge></td><td>{due ? String(due).slice(0, 10) : "—"}</td><td>{blockedTask ? <Badge state="BLOCKED">{t("task.blocked")}</Badge> : "—"}</td></tr>; })}</tbody></table></Card>
+        <Card className="mt-4 overflow-x-auto !p-0"><table className="table min-w-[700px]"><thead><tr><th>Công việc</th><th>Trạng thái</th><th>Hạn hoàn thành</th><th>Trở ngại</th></tr></thead><tbody>{items.map((it) => { const due = it.deadline ?? it.due_at; const blockedTask = it.blocked ?? it.blocked_flag ?? false; return <tr key={it.id}><td><Link to={`/tasks/${it.id}`} className="font-medium text-slate-900 hover:text-primary">{it.title}</Link></td><td><Badge state={it.state}>{stateLabel(it.state)}</Badge></td><td>{due ? String(due).slice(0, 10) : "—"}</td><td>{blockedTask ? <Badge state="BLOCKED">{t("task.blocked")}</Badge> : "—"}</td></tr>; })}</tbody></table></Card>
       ) : (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <div className="kanban-board" aria-label="Bảng Kanban">
           {Object.entries(grouped).map(([st, rows]) => (
-            <Card key={st} className="!p-3"><div aria-label={`Thả vào ${st}`} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();void moveTask(e.dataTransfer.getData("text/plain"),st);}}>
+            <Card key={st} className="kanban-column !p-3"><div aria-label={`Thả vào ${st}`} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();void moveTask(e.dataTransfer.getData("text/plain"),st);}}>
               <div className="mb-2 flex items-center justify-between">
-                <Badge state={st}>{st}</Badge>
+                <Badge state={st}>{stateLabel(st)}</Badge>
                 <span className="text-xs text-slate-500">{rows.length}</span>
               </div>
               <ul className="flex flex-col gap-1.5">
@@ -187,11 +196,11 @@ export default function Tasks() {
                       {it.title}
                     </Link>
                     <div className="mt-1 flex items-center gap-1.5 text-xs text-slate-500">
-                      <Badge state={it.state}>{it.state}</Badge>
+                      <Badge state={it.state}>{stateLabel(it.state)}</Badge>
                       {isBlocked && <Badge state="BLOCKED">{t("task.blocked")}</Badge>}
                       {due && <span>{String(due).slice(0, 10)}</span>}
                     </div>
-                    <select aria-label={`Chuyển trạng thái ${it.title}`} disabled={moving||it.version==null} value={it.state} onChange={e=>void moveTask(it.id,e.target.value)}>{STATE_OPTIONS.map(s=><option key={s} value={s}>{s}</option>)}</select>
+                    <select aria-label={`Chuyển trạng thái ${it.title}`} disabled={moving||it.version==null} value={it.state} onChange={e=>void moveTask(it.id,e.target.value)}>{STATE_OPTIONS.map(s=><option key={s} value={s}>{stateLabel(s)}</option>)}</select>
                   </li>
                   );
                 })}

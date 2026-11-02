@@ -51,7 +51,7 @@ const vi: Record<string, string> = {
   "common.no": "Không",
   "common.more": "Xem thêm",
   "tasks.filter_state": "Trạng thái",
-  "tasks.filter_project": "Mã dự án",
+  "tasks.filter_project": "Dự án",
   "tasks.filter_assignee": "Mã người nhận",
   "tasks.filter_tag": "Nhãn",
   "tasks.filter_blocked": "Bị chặn?",

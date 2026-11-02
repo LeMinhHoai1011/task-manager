@@ -13,8 +13,9 @@ export default function Login() {
   const [busy, setBusy] = useState(false);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 to-blue-50 px-4">
-      <Card className="center w-full !max-w-sm !p-6 shadow-lg">
+    <div className="auth-page">
+      <section className="auth-intro"><span className="auth-wordmark">SmartTask</span><div><h2>Ít phân tán.<br/>Thêm tập trung.</h2><p>Công việc cá nhân, dự án và cộng tác nhóm trong cùng một không gian.</p><ul><li>Theo dõi việc cần làm và thời hạn</li><li>Phối hợp, giao việc và phê duyệt</li><li>Cập nhật tiến độ trong từng bước</li></ul></div><span className="auth-intro-footer">Không gian cho một ngày làm việc rõ ràng hơn.</span></section>
+      <div className="auth-form-panel"><Card className="center auth-card w-full !max-w-sm !p-6">
         <h1 className="page-title">{t("app.title")}</h1>
         <p className="page-subtitle">{t("auth.login")}</p>
         {auth.sessionNotice && (
@@ -79,7 +80,7 @@ export default function Login() {
             {t("auth.no_account")} {t("auth.register")}
           </Link>
         </form>
-      </Card>
+      </Card></div>
     </div>
   );
 }

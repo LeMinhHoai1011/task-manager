@@ -51,7 +51,7 @@ const en: Record<string, string> = {
   "common.no": "No",
   "common.more": "More",
   "tasks.filter_state": "State",
-  "tasks.filter_project": "Project ID",
+  "tasks.filter_project": "Project",
   "tasks.filter_assignee": "Assignee ID",
   "tasks.filter_tag": "Tag",
   "tasks.filter_blocked": "Blocked?",

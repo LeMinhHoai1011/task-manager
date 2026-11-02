@@ -7,6 +7,8 @@ import { Button, Card, ErrorAlert, TextInput } from "../components/ui";
 // Workflow: start/submit/approve/reject+reason>=3/cancel/reopen+reason.
 // Ẩn nút theo role phía client nhưng backend vẫn check.
 const ACTIONS = ["start", "submit", "approve", "reject", "cancel", "reopen"] as const;
+const LABELS = {start:"Bắt đầu",submit:"Nộp hoàn thành",approve:"Phê duyệt",reject:"Yêu cầu sửa",cancel:"Hủy công việc",reopen:"Mở lại"};
+const ACTION_STATES: Record<string,string[]> = {TODO:["start","cancel"],IN_PROGRESS:["submit","cancel"],PENDING_APPROVAL:["approve","reject","cancel"],COMPLETED:["reopen"],CANCELLED:["reopen"]};
 
 const ACTION_VARIANT: Record<(typeof ACTIONS)[number], "primary" | "indigo" | "success" | "warning" | "gray" | "purple"> = {
   start: "primary",
@@ -17,7 +19,7 @@ const ACTION_VARIANT: Record<(typeof ACTIONS)[number], "primary" | "indigo" | "s
   reopen: "purple",
 };
 
-export default function WorkflowPanel({ taskId, version, role, onDone,disabled=false }: { taskId: string; version: string; role?: string; onDone?: () => void;disabled?:boolean }) {
+export default function WorkflowPanel({ taskId, version, role, state, onDone,disabled=false }: { taskId: string; version: string; role?: string;state?:string; onDone?: () => void;disabled?:boolean }) {
   const auth = useAuth();
   const [reason, setReason] = useState("");
   const [err, setErr] = useState<string | null>(null);
@@ -26,6 +28,7 @@ export default function WorkflowPanel({ taskId, version, role, onDone,disabled=f
   const [busy,setBusy]=useState(false);
 
   const canShow = (a: (typeof ACTIONS)[number]): boolean => {
+    if (state && ACTION_STATES[state] && !ACTION_STATES[state].includes(a)) return false;
     if (!role) return true;
     if (a === "approve" && !(role === "admin" || role === "reviewer" || role === "manager")) return false;
     if (a === "reject" && !(role === "admin" || role === "reviewer" || role === "manager")) return false;
@@ -48,7 +51,7 @@ export default function WorkflowPanel({ taskId, version, role, onDone,disabled=f
     try {
       setBusy(true);
       await op();
-      setOk(`${action} OK`);
+      setOk(`Đã thực hiện: ${LABELS[action].toLowerCase()}`);
       onDone?.();
     } catch (e: any) {
       if (e?.needsReauth) {
@@ -64,14 +67,14 @@ export default function WorkflowPanel({ taskId, version, role, onDone,disabled=f
 
   return (
     <Card>
-      <h2 className="text-sm font-semibold text-slate-900">Workflow</h2>
+      <h2 className="section-title">Tiến trình công việc</h2>
       <div className="mt-2">
-        <TextInput aria-label="reason" placeholder="reason (>=3 cho reject/reopen)" value={reason} onChange={(e) => setReason(e.target.value)} />
+        <TextInput aria-label="Lý do thay đổi trạng thái" placeholder="Lý do yêu cầu sửa hoặc mở lại (ít nhất 3 ký tự)" value={reason} onChange={(e) => setReason(e.target.value)} />
       </div>
       <div className="row">
         {ACTIONS.filter(canShow).map((a) => (
           <Button key={a} disabled={busy||disabled} size="sm" variant={ACTION_VARIANT[a]} onClick={() => void run(a)}>
-            {a}
+            {LABELS[a]}
           </Button>
         ))}
       </div>

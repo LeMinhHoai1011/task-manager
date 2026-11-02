@@ -105,7 +105,8 @@ export function EmptyState({ title, description, action }: { title: string; desc
 
 export function Skeleton({ className = "" }: { className?: string }) { return <div aria-hidden className={`skeleton ${className}`} />; }
 
-export function StatusBadge({ state, children }: { state?: string; children: ReactNode }) { return <Badge state={state}>{children}</Badge>; }
+export function stateLabel(state?:string) { return ({TODO:"Cần làm",IN_PROGRESS:"Đang thực hiện",PENDING_APPROVAL:"Chờ duyệt",COMPLETED:"Hoàn thành",CANCELLED:"Đã hủy",BLOCKED:"Bị chặn"} as Record<string,string>)[state??""]??state??"Chưa rõ"; }
+export function StatusBadge({ state, children }: { state?: string; children?: ReactNode }) { return <Badge state={state}>{children??stateLabel(state)}</Badge>; }
 
 /** Hiển thị ErrorEnvelope trung tính (chỉ uiMessage đã map, không render text server). */
 export function ErrorAlert({ message, onRetry }: { message: string | null; onRetry?: () => void }) {

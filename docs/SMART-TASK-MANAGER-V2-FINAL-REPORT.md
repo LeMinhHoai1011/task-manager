@@ -267,3 +267,8 @@ Danh sách toàn bộ ảnh runtime:
 - [teams-mobile.png](screenshots/v2/teams-mobile.png)
 - [workflow-approved.png](screenshots/v2/workflow-approved.png)
 - [workflow-pending-approval.png](screenshots/v2/workflow-pending-approval.png)
+
+
+## Cập nhật giao diện sau bàn giao V2
+
+Đợt thiết kế lại 02/11/2026 có báo cáo riêng: [V2-UI-REDESIGN-REPORT.md](V2-UI-REDESIGN-REPORT.md). Frontend hiện24/24 test PASS, production build PASS; ảnh trong screenshots/v2 đã cập nhật từ runtime mới. Kết quả backend/migration và các giới hạn production ở trên là lịch sử nghiệm thu V2, không bị thay bằng kết quả kiểm thử giao diện.

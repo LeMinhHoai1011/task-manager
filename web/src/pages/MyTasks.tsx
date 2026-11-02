@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { apiFetch } from "../api/client";
 import PersonalChecklist from "./PersonalChecklist";
+import { StatusBadge } from "../components/ui";
 
 type Task = { id: string; title: string; state: string; version: number; description?: string; notes?: string; priority?: string; startAt?: string | null; dueAt?: string | null; dueIsDateOnly?: boolean; dueTimezone?: string; dueDateInput?: string };
 function deadlineDate(task: Task) {
@@ -85,27 +86,24 @@ export default function MyTasks() {
     } catch { setError("Không lưu được trạng thái. Hãy tải lại trước khi thử tiếp."); }
     finally { setBusy(false); }
   }
-  return <section className="personal-tasks mx-auto max-w-3xl space-y-4">
-    <h1 className="page-title">Việc của tôi</h1>
-    <p>Công việc riêng tư, không cần tạo dự án.</p>
-    <button disabled={busy} onClick={() => { setPage(0); setSort("priority"); }}>Ưu tiên cao trước</button>
+  return <section className="personal-tasks personal-workspace mx-auto max-w-5xl space-y-5">
+    <header className="page-heading"><div><h1 className="page-title">Việc của tôi</h1><p className="page-subtitle">Một nơi riêng cho công việc và kế hoạch của bạn.</p></div><button className="btn btn-secondary" disabled={busy} onClick={() => void load()}>Làm mới</button></header>
+    {summary && <div className="personal-summary" aria-label="Thống kê cá nhân"><div><strong>{summary.total}</strong><span>Tổng công việc</span></div><div><strong>{summary.TODO}</strong><span>Cần làm</span></div><div><strong>{summary.IN_PROGRESS}</strong><span>Đang làm</span></div><div><strong>{summary.COMPLETED}</strong><span>Hoàn thành</span></div><div><strong>{summary.overdue}</strong><span>Quá hạn</span></div></div>}
+    {!deleted&&<form onSubmit={create} className="quick-create"><span className="quick-create-plus" aria-hidden="true">+</span><input aria-label="Tiêu đề công việc" className="input flex-1" placeholder="Bạn cần làm gì tiếp theo?" value={title} maxLength={200} required onChange={e => setTitle(e.target.value)} /><button className="btn btn-primary" disabled={busy || !title.trim()}>Thêm việc</button></form>}
+    <details className="filter-panel" open><summary>Tìm kiếm và bộ lọc</summary><div className="filter-panel-body">
     <div className="flex flex-wrap gap-3"><label>Ưu tiên<select value={priority} onChange={e => { setPage(0); setPriority(e.target.value); }}><option value="">Tất cả</option>{["LOW", "MEDIUM", "HIGH", "URGENT"].map(p => <option key={p}>{p}</option>)}</select></label><label>Nhãn<input value={tag} onChange={e => setTag(e.target.value)} /></label><label><input type="checkbox" checked={overdue} onChange={e => { setPage(0); setOverdue(e.target.checked); }} />Quá hạn</label></div>
-    {!deleted && <div className="flex flex-wrap gap-2">{items.filter(task => task.state === "TODO").map(task => <button disabled={busy} key={task.id} onClick={() => void start(task)}>Bắt đầu: {task.title}</button>)}</div>}
-    <button onClick={() => void loadSummary()}>Cập nhật thống kê cá nhân</button>
-    {summary && <p>Tổng: {summary.total} · Cần làm: {summary.TODO} · Đang làm: {summary.IN_PROGRESS} · Hoàn thành: {summary.COMPLETED} · Quá hạn: {summary.overdue}</p>}
-    <label>Checklist của công việc<select value={detailId ?? ""} onChange={e => setDetailId(e.target.value || null)}><option value="">Chọn công việc</option>{!deleted && items.map(task => <option key={task.id} value={task.id}>{task.title}</option>)}</select></label>
-    {detailId && !deleted && <PersonalChecklist key={`${detailId}:${items.find(task => task.id === detailId)?.version ?? 0}`} id={detailId} onChanged={() => void load()} />}
     <form onSubmit={e => { e.preventDefault(); if (page !== 0) setPage(0); else void load(); }} className="flex flex-wrap gap-2">
       <input aria-label="Tìm công việc" value={query} onChange={e => setQuery(e.target.value)} placeholder="Tìm tiêu đề hoặc mô tả" /><button disabled={busy}>Tìm</button>
       <select aria-label="Trạng thái" value={state} onChange={e => { setPage(0); setState(e.target.value); }}><option value="">Tất cả trạng thái</option><option value="TODO">Cần làm</option><option value="IN_PROGRESS">Đang làm</option><option value="COMPLETED">Hoàn thành</option></select>
-      <select aria-label="Sắp xếp" value={sort} onChange={e => { setPage(0); setSort(e.target.value); }}><option value="createdAt">Mới nhất</option><option value="dueAt">Hạn hoàn thành</option><option value="title">Tiêu đề</option></select>
+      <select aria-label="Sắp xếp" value={sort} onChange={e => { setPage(0); setSort(e.target.value); }}><option value="createdAt">Mới nhất</option><option value="dueAt">Hạn hoàn thành</option><option value="title">Tiêu đề</option><option value="priority">Ưu tiên cao trước</option></select>
       <label><input type="checkbox" checked={deleted} onChange={e => { setPage(0); setDeleted(e.target.checked); }} />Thùng rác</label>
     </form>
-    <form onSubmit={create} className="flex gap-2"><input aria-label="Tiêu đề công việc" className="input flex-1" value={title} maxLength={200} required onChange={e => setTitle(e.target.value)} /><button className="btn btn-primary" disabled={busy || !title.trim()}>Thêm việc</button></form>
+    </div></details>
     {error && <p role="alert">{error} <button onClick={() => void load()}>Tải lại</button></p>}
     {busy && <p role="status">Đang xử lý…</p>}
-    {!busy && !error && items.length === 0 && <p>Bạn chưa có công việc nào.</p>}
-    <ul className="space-y-3">{items.map(task => <li key={task.id} className="card p-4"><label className="flex gap-3"><input type="checkbox" disabled={busy || deleted} checked={task.state === "COMPLETED"} onChange={() => void toggle(task)} /><span className={task.state === "COMPLETED" ? "line-through" : ""}>{task.title}</span></label><p>{task.priority} {task.dueAt && (task.dueIsDateOnly ? deadlineDate(task) : new Date(task.dueAt).toLocaleString())}</p>{deleted ? <button disabled={busy} onClick={() => void change(task, "restore")}>Khôi phục</button> : <div className="flex gap-3"><button disabled={busy} onClick={() => setEditing({ ...task })}>Sửa chi tiết</button><button disabled={busy} onClick={() => void change(task, "delete")}>Chuyển vào thùng rác</button></div>}</li>)}</ul>
+    {!busy && !error && items.length === 0 && <div className="empty-state"><h2 className="section-title">{deleted?"Thùng rác đang trống":"Chưa có công việc phù hợp"}</h2><p className="mt-2">{deleted?"Công việc đã xóa sẽ xuất hiện tại đây để khôi phục.":"Thêm công việc ở trên hoặc thay đổi bộ lọc để xem kết quả."}</p></div>}
+    <ul className="personal-task-list">{items.map(task => <li key={task.id} className="personal-task-row"><div className="task-row-content"><label className="task-row-title"><input type="checkbox" disabled={busy || deleted} checked={task.state === "COMPLETED"} onChange={() => void toggle(task)} /><span className={task.state === "COMPLETED" ? "line-through text-slate-500" : ""}>{task.title}</span></label><div className="task-row-meta"><StatusBadge state={task.state}/><span className={`priority-dot priority-${task.priority?.toLowerCase()}`}>{({LOW:"Thấp",MEDIUM:"Trung bình",HIGH:"Cao",URGENT:"Khẩn cấp"} as Record<string,string>)[task.priority??"MEDIUM"]??task.priority}</span><span>{task.dueAt ? (task.dueIsDateOnly ? deadlineDate(task) : new Date(task.dueAt).toLocaleString("vi-VN")) : "Chưa đặt hạn"}</span></div></div>{deleted ? <button disabled={busy} onClick={() => void change(task, "restore")}>Khôi phục</button> : <div className="task-row-actions">{task.state==="TODO"&&<button disabled={busy} aria-label={`Bắt đầu: ${task.title}`} onClick={()=>void start(task)}>Bắt đầu</button>}<button disabled={busy} onClick={() => setEditing({ ...task })}>Sửa chi tiết</button><button className="task-delete" disabled={busy} onClick={() => void change(task, "delete")}>Chuyển vào thùng rác</button></div>}</li>)}</ul>
+    {!deleted&&<section className="card checklist-workspace"><h2 className="section-title">Chia nhỏ để dễ hoàn thành</h2><p className="page-subtitle">Chọn một công việc để quản lý checklist và nhãn.</p><label>Checklist của công việc<select value={detailId ?? ""} onChange={e => setDetailId(e.target.value || null)}><option value="">Chọn công việc</option>{items.map(task => <option key={task.id} value={task.id}>{task.title}</option>)}</select></label>{detailId && <PersonalChecklist key={`${detailId}:${items.find(task => task.id === detailId)?.version ?? 0}`} id={detailId} onChanged={() => void load()} />}</section>}
     {editing && <form className="card space-y-3 p-4" onSubmit={e => { e.preventDefault(); void change(editing, "save"); }}>
       <h2>Sửa công việc</h2>
       <label className="block">Tiêu đề<input required maxLength={200} value={editing.title} onChange={e => setEditing({ ...editing, title: e.target.value })} /></label>

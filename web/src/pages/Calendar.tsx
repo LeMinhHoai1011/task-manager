@@ -140,8 +140,8 @@ export default function Calendar() {
   const visible = mode === "unscheduled" ? unscheduled : mode === "month" ? items : dated;
 
   return (
-    <div className="mx-auto max-w-5xl">
-      <h1 className="page-title">{t("nav.calendar")} ({tz})</h1>
+    <div className="calendar-page mx-auto max-w-5xl space-y-4">
+      <header><h1 className="page-title">Lịch công việc</h1><p className="page-subtitle">Sắp xếp thời hạn và nhắc việc theo múi giờ {tz}.</p></header>
       <ScopeFilters scope={scope} projectId={projectId} teamId={teamId} onChange={(s,p,t)=>{setScope(s);setProjectId(p);setTeamId(t);setPage(0);}}/>
       <label>Ngày xem <input className="input" aria-label="Ngày xem" type="date" value={anchor} onChange={e=>{setAnchor(e.target.value);setPage(0);}}/></label>
       <div className="mt-2 flex gap-1 rounded-lg bg-slate-100 p-1">
@@ -152,7 +152,7 @@ export default function Calendar() {
             disabled={mode === m}
             className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium ${mode === m ? "bg-white text-primary shadow" : "text-slate-600 hover:text-slate-900"}`}
           >
-            {m}
+            {{day:"Ngày",week:"Tuần",month:"Tháng",unscheduled:"Chưa lên lịch"}[m]}
           </button>
         ))}
       </div>

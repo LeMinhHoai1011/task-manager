@@ -414,7 +414,7 @@ export default function TaskDetail() {
           </Card>
         </div>
         <div className="flex flex-col gap-4">
-          <WorkflowPanel disabled={tickBusy} taskId={String(id)} version={String(version)} role={task.role} onDone={() => void load()} />
+          <WorkflowPanel disabled={tickBusy} taskId={String(id)} version={String(version)} role={task.role} state={task.state} onDone={() => void load()} />
           <TaskResponsibility id={String(id)} version={String(version)} onChanged={() => void load()} />
           <Card>
             <h2 className="text-sm font-semibold text-slate-900">{t("task.timeline")}</h2>

@@ -224,7 +224,7 @@ export default function Notifications() {
             <li key={n.id} className={`flex items-center gap-2.5 rounded-xl border bg-white px-3 py-2.5 text-sm ${n.read ? "border-slate-200" : "border-blue-200 bg-blue-50/50"}`}>
               {!n.read && <span className="h-2 w-2 shrink-0 rounded-full bg-blue-600" aria-label="unread" />}
               <span className={`rounded px-1.5 py-0.5 text-xs ${n.read ? "bg-slate-100 text-slate-500" : "bg-blue-100 text-blue-800"}`}>
-                {n.read ? "read" : "unread"}
+                {n.read ? "Đã đọc" : "Chưa đọc"}
               </span>
               <span className="flex-1 text-slate-800">{n.title ?? kindLabels[n.kind??""] ?? n.kind ?? n.id}</span>
               {(n.kind??"").startsWith("TASK_") && <Button variant="ghost" size="sm" onClick={()=>void openTask(n.id)}>Mở công việc</Button>}
