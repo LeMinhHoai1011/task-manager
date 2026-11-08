@@ -35,6 +35,9 @@ smarttask:
   self-registration: true
   bootstrap:
     admin-username:
+  push:
+    scan:
+      delay: 60000
 
 logging:
   level:

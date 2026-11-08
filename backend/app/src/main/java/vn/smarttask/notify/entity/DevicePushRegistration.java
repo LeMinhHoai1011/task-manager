@@ -28,6 +28,12 @@ public class DevicePushRegistration {
   private String pushTokenHash;
   @Column(name = "device_label")
   private String deviceLabel;
+  @Column(name = "endpoint")
+  private String endpoint;
+  @Column(name = "auth_key")
+  private String authKey;
+  @Column(name = "p256dh_key")
+  private String p256dhKey;
   @Column(name = "status", nullable = false)
   private String status = "ACTIVE";
   @Column(name = "registered_at", nullable = false)
@@ -51,6 +57,13 @@ public class DevicePushRegistration {
     this.deviceLabel = deviceLabel;
   }
 
+  public String getEndpoint() { return endpoint; }
+  public void setEndpoint(String v) { this.endpoint = v; }
+  public String getAuthKey() { return authKey; }
+  public void setAuthKey(String v) { this.authKey = v; }
+  public String getP256dhKey() { return p256dhKey; }
+  public void setP256dhKey(String v) { this.p256dhKey = v; }
+
   @PrePersist
   void prePersist() {
     if (registeredAt == null) registeredAt = OffsetDateTime.now(ZoneOffset.UTC);
@@ -70,4 +83,6 @@ public class DevicePushRegistration {
   public void setUnregisteredAt(OffsetDateTime v) { this.unregisteredAt = v; }
   public OffsetDateTime getLastSuccessAt() { return lastSuccessAt; }
   public int getFailureCount() { return failureCount; }
+  public void setFailureCount(int v) { this.failureCount = v; }
+  public void setLastSuccessAt(OffsetDateTime v) { this.lastSuccessAt = v; }
 }

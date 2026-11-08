@@ -65,7 +65,7 @@ class DevicePushServiceTest {
   @Test
   void unsupportedPlatformIs400() {
     AppException ex = assertThrows(AppException.class,
-        () -> service().register(UUID.randomUUID(), UuidV7.generate(), "WEB_PUSH", "t", null));
+        () -> service().register(UUID.randomUUID(), UuidV7.generate(), "UNKNOWN_PLATFORM", "t", null));
     assertEquals(400, ex.getHttpStatus().value());
     assertEquals("PUSH_PLATFORM_UNSUPPORTED", ex.getReasonCode());
   }

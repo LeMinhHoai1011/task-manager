@@ -12,4 +12,5 @@ public interface DevicePushRegistrationRepository
   Optional<DevicePushRegistration> findByPushTokenHash(String pushTokenHash);
   List<DevicePushRegistration> findBySessionIdAndStatus(UUID sessionId, String status);
   long countByUserIdAndStatus(UUID userId, String status);
+  List<DevicePushRegistration> findByPlatformAndStatus(String platform, String status);
 }

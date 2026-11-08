@@ -75,6 +75,26 @@ abstract final class ApiPaths {
   static String device(String registrationId) =>
       '/notifications/devices/$registrationId';
 
+  // Web Push VAPID public key
+  static const vapidPublicKey = '/notifications/vapid/public-key';
+
+  // Notes (Personal, Project, Task)
+  static const notes = '/notes';
+  static String note(String id) => '/notes/$id';
+  static String notePin(String id) => '/notes/$id/pin';
+  static String noteRestore(String id) => '/notes/$id/restore';
+
+  // Personal tasks (me/tasks)
+  static const meTasks = '/me/tasks';
+  static String meTask(String id) => '/me/tasks/$id';
+  static String meTaskStart(String id) => '/me/tasks/$id/start';
+  static String meTaskCompletion(String id) => '/me/tasks/$id/completion';
+  static const meTasksSummary = '/me/tasks/summary';
+
+  // Project progress logs
+  static String projectProgressLogs(String projectId) =>
+      '/projects/$projectId/progress-logs';
+
   // PH-6 reports & export (TTL 24h, requester-only). Download tra bytes tran.
   static const reportsDashboard = '/reports/dashboard';
   static const reportExportJobs = '/reports/export-jobs';

@@ -1,0 +1,16 @@
+{
+  "name": "SmartTask V3.0",
+  "short_name": "SmartTask",
+  "description": "Hệ thống quản lý công việc, dự án, ghi chú, tiến độ và báo cáo",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#172c3a",
+  "theme_color": "#087e83",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    }
+  ]
+}

@@ -11,10 +11,14 @@ import 'screens/calendar_screen.dart';
 import 'screens/comments_screen.dart';
 import 'screens/files_screen.dart';
 import 'screens/login_screen.dart';
+import 'screens/my_notes_screen.dart';
+import 'screens/my_tasks_screen.dart';
 import 'screens/notifications_screen.dart';
+import 'screens/project_detail_screen.dart';
 import 'screens/projects_screen.dart';
 import 'screens/reauth_screen.dart';
 import 'screens/reports_screen.dart';
+import 'screens/settings_screen.dart';
 import 'screens/task_detail_screen.dart';
 import 'screens/tasks_screen.dart';
 import 'screens/workspaces_screen.dart';
@@ -48,6 +52,11 @@ GoRouter buildRouter(SessionManager session) {
             ProjectsScreen(workspaceId: s.pathParameters['wid'] ?? ''),
       ),
       GoRoute(
+        path: '/projects/:pid',
+        builder: (c, s) =>
+            ProjectDetailScreen(projectId: s.pathParameters['pid'] ?? ''),
+      ),
+      GoRoute(
         path: '/projects/:pid/tasks',
         builder: (c, s) =>
             TasksScreen(projectId: s.pathParameters['pid'] ?? ''),
@@ -66,6 +75,18 @@ GoRouter buildRouter(SessionManager session) {
         path: '/tasks/:tid/files',
         builder: (c, s) =>
             FilesScreen(taskId: s.pathParameters['tid'] ?? ''),
+      ),
+      GoRoute(
+        path: '/my-tasks',
+        builder: (c, s) => const MyTasksScreen(),
+      ),
+      GoRoute(
+        path: '/my-notes',
+        builder: (c, s) => const MyNotesScreen(),
+      ),
+      GoRoute(
+        path: '/settings',
+        builder: (c, s) => const SettingsScreen(),
       ),
       GoRoute(
         path: '/ai',
@@ -105,6 +126,10 @@ class HomeShell extends StatelessWidget {
             label: 'TB',
           ),
           BottomNavigationBarItem(icon: Icon(Icons.bar_chart), label: 'BC'),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.checklist),
+            label: 'Cá nhân',
+          ),
         ],
       ),
     );
@@ -115,6 +140,7 @@ class HomeShell extends StatelessWidget {
     if (loc.startsWith('/calendar')) return 1;
     if (loc.startsWith('/notifications')) return 2;
     if (loc.startsWith('/reports')) return 3;
+    if (loc.startsWith('/my-tasks') || loc.startsWith('/my-notes')) return 4;
     return 0;
   }
 
@@ -128,6 +154,8 @@ class HomeShell extends StatelessWidget {
         context.go('/notifications');
       case 3:
         context.go('/reports');
+      case 4:
+        context.go('/my-tasks');
       default:
         context.go('/workspaces');
     }

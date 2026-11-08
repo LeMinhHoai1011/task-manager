@@ -36,6 +36,9 @@ public class DeviceController {
       @JsonProperty("platform") String platform,
       @JsonProperty("status") String status,
       @JsonProperty("token_hint") String tokenHint,
+      @JsonProperty("endpoint") String endpoint,
+      @JsonProperty("auth_key") String authKey,
+      @JsonProperty("p256dh_key") String p256dhKey,
       @JsonProperty("session_id") UUID sessionId,
       @JsonProperty("registered_at") OffsetDateTime registeredAt,
       @JsonProperty("last_success_at") OffsetDateTime lastSuccessAt,
@@ -43,12 +46,16 @@ public class DeviceController {
 
   public record RegisterBody(@JsonProperty("platform") String platform,
       @JsonProperty("push_token") String pushToken,
-      @JsonProperty("device_label") String deviceLabel) {}
+      @JsonProperty("device_label") String deviceLabel,
+      @JsonProperty("endpoint") String endpoint,
+      @JsonProperty("auth_key") String authKey,
+      @JsonProperty("p256dh_key") String p256dhKey) {}
 
   private static DeviceDto toDto(vn.smarttask.notify.entity.DevicePushRegistration d) {
     String hash = d.getPushTokenHash();
     String hint = hash == null || hash.length() < 6 ? "***" : hash.substring(0, 6) + "...";
     return new DeviceDto(d.getId(), d.getDeviceLabel(), d.getPlatform(), d.getStatus(), hint,
+        d.getEndpoint(), d.getAuthKey(), d.getP256dhKey(),
         d.getSessionId(), d.getRegisteredAt(), d.getLastSuccessAt(), d.getFailureCount());
   }
 
@@ -68,7 +75,7 @@ public class DeviceController {
       @RequestBody RegisterBody body) {
     Principal principal = CurrentActor.require();
     var d = devices.register(principal.userId(), principal.sessionId(), body.platform(),
-        body.pushToken(), body.deviceLabel());
+        body.pushToken(), body.deviceLabel(), body.endpoint(), body.authKey(), body.p256dhKey());
     return ResponseEntity.ok(ApiResult.ok(toDto(d), "notification.device.register.success"));
   }
 

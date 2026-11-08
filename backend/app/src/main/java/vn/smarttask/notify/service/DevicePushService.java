@@ -28,7 +28,7 @@ import vn.smarttask.notify.repo.DevicePushRegistrationRepository;
 @Service
 public class DevicePushService {
 
-  static final Set<String> PLATFORMS = Set.of("ANDROID_FCM", "IOS_APNS");
+  static final Set<String> PLATFORMS = Set.of("ANDROID_FCM", "IOS_APNS", "WEB_PUSH");
   /** Cap on ACTIVE registrations per user (409 beyond it). */
   static final long MAX_ACTIVE_PER_USER = 10L;
 
@@ -47,6 +47,13 @@ public class DevicePushService {
   @Transactional
   public DevicePushRegistration register(UUID userId, UUID sessionId, String platform,
       String pushToken, String deviceLabel) {
+    return register(userId, sessionId, platform, pushToken, deviceLabel, null, null, null);
+  }
+
+  @Transactional
+  public DevicePushRegistration register(UUID userId, UUID sessionId, String platform,
+      String pushToken, String deviceLabel,
+      String endpoint, String authKey, String p256dhKey) {
     if (platform == null || !PLATFORMS.contains(platform.trim().toUpperCase())) {
       audit.appendDenied(userId, "push.device.register", "device_push_registration", null,
           "PUSH_PLATFORM_UNSUPPORTED");
@@ -72,6 +79,17 @@ public class DevicePushService {
         throw AppException.stateConflict("PUSH_TOKEN_ALREADY_REGISTERED",
             "Token already registered");
       }
+      // Reactivate existing and update web push fields
+      DevicePushRegistration d = existing.get();
+      d.setStatus("ACTIVE");
+      d.setUnregisteredAt(null);
+      if (endpoint != null) d.setEndpoint(endpoint);
+      if (authKey != null) d.setAuthKey(authKey);
+      if (p256dhKey != null) d.setP256dhKey(p256dhKey);
+      devices.save(d);
+      audit.append(userId, "push.device.register", "device_push_registration", d.getId(),
+          "ALLOWED", null, "{}");
+      return d;
     }
     if (devices.countByUserIdAndStatus(userId, "ACTIVE") >= MAX_ACTIVE_PER_USER) {
       audit.appendDenied(userId, "push.device.register", "device_push_registration", null,
@@ -81,6 +99,9 @@ public class DevicePushService {
     }
     DevicePushRegistration d = new DevicePushRegistration(UuidV7.generate(), userId, sessionId,
         platform.trim().toUpperCase(), hash, deviceLabel);
+    if (endpoint != null) d.setEndpoint(endpoint);
+    if (authKey != null) d.setAuthKey(authKey);
+    if (p256dhKey != null) d.setP256dhKey(p256dhKey);
     devices.save(d);
     audit.append(userId, "push.device.register", "device_push_registration", d.getId(),
         "ALLOWED", null, "{}");

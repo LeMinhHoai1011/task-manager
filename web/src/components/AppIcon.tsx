@@ -18,6 +18,6 @@ const paths: Record<string, string> = {
   menu: "M3 6h18 M3 12h18 M3 18h18",
   close: "M6 6l12 12 M6 18 18 6",
 };
-export default function AppIcon({ name, size = 20, style }: { name: string; size?: number; style?: CSSProperties }) {
-  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={style}><path d={paths[name] ?? paths.tasks}/></svg>;
+export default function AppIcon({ name, size = 20, style, className }: { name: string; size?: number; style?: CSSProperties; className?: string }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={style} className={className}><path d={paths[name] ?? paths.tasks}/></svg>;
 }
