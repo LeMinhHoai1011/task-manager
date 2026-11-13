@@ -79,7 +79,7 @@ public class ReportService {
         && !"MANAGER".equals(actorMembership.getRole());
     var rows = taskRows(projectId).stream()
         .filter(r -> !actorIsMember
-            || assignments.existsByTaskIdAndUserId(r.id(), actor))
+            || assignments.existsByTaskIdAndUserIdAndStatus(r.id(), actor, "ACTIVE"))
         .toList();
     OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
     Map<String, MetricDictionary.MetricValue> m = new LinkedHashMap<>();
@@ -103,7 +103,7 @@ public class ReportService {
     m.put("TASK_OVERDUE_PENDING_APPROVAL_COUNT", MetricDictionary.overduePendingApprovalCount(rows, now));
     var allRounds = new ArrayList<MetricDictionary.ApprovalRoundRow>();
     // F2.5: ONE project-wide round-status query instead of a per-task loop.
-    for (String st : rounds.findStatusesByProjectId(projectId)) {
+    for (String st : ids.isEmpty() ? List.<String>of() : rounds.findStatusesByTaskIds(ids)) {
       allRounds.add(new MetricDictionary.ApprovalRoundRow(st));
     }
     m.put("APPROVAL_PENDING_COUNT", MetricDictionary.approvalCount(allRounds, "PENDING"));
@@ -152,7 +152,7 @@ public class ReportService {
         && !"OWNER".equals(actorMembership.getRole())
         && !"ADMIN".equals(actorMembership.getRole())
         && !"MANAGER".equals(actorMembership.getRole());
-    if (actorIsMember && !assignments.existsByTaskIdAndUserId(taskId, actor)) {
+    if (actorIsMember && !assignments.existsByTaskIdAndUserIdAndStatus(taskId, actor, "ACTIVE")) {
       throw AppException.notFound("Task not found");
     }
     var states = workflowEvents.findByTaskIdOrderByCreatedAtAsc(taskId).stream()

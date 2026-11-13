@@ -4,6 +4,8 @@ import { apiFetch } from "../api/client";
 import { useToast } from "../components/ToastContext";
 import AppIcon from "../components/AppIcon";
 import { Badge } from "../components/ui";
+import CreateProjectTask from "../components/CreateProjectTask";
+import {useAccess,roleLabel} from "../auth/AccessContext";
 
 interface ProgressLogItem {
   id: string;
@@ -24,6 +26,8 @@ export default function ProjectDetail() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const { showToast } = useToast();
+  const access=useAccess();
+  const currentAccess=access.projects.find(p=>p.id===id);
 
   const [activeTab, setActiveTab] = useState<
     "overview" | "tasks" | "notes" | "progress" | "members" | "reports" | "settings"
@@ -35,6 +39,8 @@ export default function ProjectDetail() {
   const [progressLogs, setProgressLogs] = useState<ProgressLogItem[]>([]);
   const [members, setMembers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const projectRole = currentAccess?.role;
+  const canManage = !!currentAccess?.canManage;
 
   // New Progress Log modal / form state
   const [logModalOpen, setLogModalOpen] = useState(false);
@@ -47,7 +53,7 @@ export default function ProjectDetail() {
 
   // Settings tab form state
   const [approvalEnabled, setApprovalEnabled] = useState(false);
-  const [allowMemberCreate, setAllowMemberCreate] = useState(true);
+  const [settingsVersion,setSettingsVersion]=useState<number|null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
 
   // Switch tab and sync search params
@@ -105,7 +111,7 @@ export default function ProjectDetail() {
         const sData = sRes?.data || sRes;
         if (sData) {
           setApprovalEnabled(!!sData.approval_enabled);
-          setAllowMemberCreate(sData.allow_member_create_task !== false);
+          setSettingsVersion(sData.version);
         }
       } catch {}
     } catch (e: any) {
@@ -138,6 +144,7 @@ export default function ProjectDetail() {
 
   const handleCreateProgressLog = async (e: React.FormEvent) => {
     e.preventDefault();
+    if(!currentAccess?.canLogProgress)return;
     if (!logSummary.trim()) {
       showToast({ type: "warning", message: "Vui lòng nhập tóm tắt tiến độ" });
       return;
@@ -172,12 +179,14 @@ export default function ProjectDetail() {
   };
 
   const handleSaveSettings = async () => {
+    if(!canManage||settingsVersion===null)return;
     setSavingSettings(true);
     try {
       await apiFetch(`/projects/${id}/approval`, {
         method: "PATCH",
-        body: JSON.stringify({ enabled: approvalEnabled }),
+        body: { enabled: approvalEnabled,version:settingsVersion },
       });
+      await loadData();
       showToast({ type: "success", message: "Đã cập nhật cài đặt dự án" });
     } catch {
       showToast({ type: "error", message: "Lỗi cập nhật cài đặt dự án" });
@@ -222,13 +231,13 @@ export default function ProjectDetail() {
           </div>
 
           <div className="flex items-center gap-3 shrink-0">
-            <button
+            {currentAccess?.canLogProgress&&<button
               onClick={() => setLogModalOpen(true)}
               className="btn btn-primary text-xs flex items-center gap-1.5"
             >
               <AppIcon name="report" size={16} />
               <span>Cập nhật tiến độ</span>
-            </button>
+            </button>}
           </div>
         </div>
 
@@ -278,6 +287,7 @@ export default function ProjectDetail() {
         </div>
       </div>
 
+      <p role="note" className="card">Vai trò dự án: <strong>{roleLabel(projectRole)}</strong>. {canManage?"Lập và giao việc, theo dõi tiến độ, duyệt kết quả và quản lý thành viên.":projectRole==="MEMBER"?"Thực hiện việc được giao, cập nhật tiến độ và nộp kết quả.":"Chỉ xem Project và công việc được chia sẻ."}</p>
       {/* 7 Tabs Navigation */}
       <div className="border-b border-slate-200 dark:border-slate-800 overflow-x-auto">
         <nav className="flex gap-2 min-w-max pb-px">
@@ -289,7 +299,7 @@ export default function ProjectDetail() {
             { id: "members", label: `5. Thành viên (${members.length})`, icon: "team" },
             { id: "reports", label: "6. Báo cáo", icon: "report" },
             { id: "settings", label: "7. Cài đặt", icon: "settings" },
-          ].map((tab) => (
+          ].filter(tab=>tab.id!=="settings"||canManage).map((tab) => (
             <button
               key={tab.id}
               onClick={() => handleTabChange(tab.id as any)}
@@ -366,6 +376,7 @@ export default function ProjectDetail() {
       {/* TAB 2: CÔNG VIỆC */}
       {activeTab === "tasks" && (
         <div className="space-y-4">
+          {canManage&&<CreateProjectTask key={id} projectId={id} projectName={project?.name} onCreated={()=>void loadData()} />}
           <div className="flex items-center justify-between">
             <h3 className="font-bold text-base text-slate-900 dark:text-white">
               Danh sách công việc dự án
@@ -407,12 +418,12 @@ export default function ProjectDetail() {
             <h3 className="font-bold text-base text-slate-900 dark:text-white">
               Ghi chú thuộc dự án
             </h3>
-            <button
-              onClick={() => navigate(`/notes`)}
+            {currentAccess?.canCreateTask&&<button
+              onClick={() => navigate(`/notes?project_id=${id}`)}
               className="btn btn-primary text-xs"
             >
               + Tạo ghi chú dự án
-            </button>
+            </button>}
           </div>
           {notes.length === 0 ? (
             <div className="p-8 text-center text-sm text-slate-400 border rounded-2xl bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800">
@@ -454,13 +465,13 @@ export default function ProjectDetail() {
                 Lịch sử các mốc báo cáo tiến độ, công việc đã hoàn tất, khó khăn và kế hoạch tiếp theo
               </p>
             </div>
-            <button
+            {currentAccess?.canLogProgress&&<button
               onClick={() => setLogModalOpen(true)}
               className="btn btn-primary text-xs flex items-center gap-1.5"
             >
               <AppIcon name="plus" size={14} />
               <span>Ghi nhận tiến độ mới</span>
-            </button>
+            </button>}
           </div>
 
           {progressLogs.length === 0 ? (
@@ -581,7 +592,8 @@ export default function ProjectDetail() {
       )}
 
       {/* TAB 7: CÀI ĐẶT */}
-      {activeTab === "settings" && (
+      {activeTab === "settings" && !canManage && <p role="alert" className="card">Chỉ quản lý dự án được thay đổi cài đặt. <button onClick={()=>handleTabChange("tasks")}>Mở công việc được cấp quyền</button></p>}
+      {activeTab === "settings" && canManage && (
         <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 space-y-6 max-w-2xl">
           <h3 className="font-bold text-lg text-slate-900 dark:text-white">
             Cài đặt dự án
@@ -605,27 +617,12 @@ export default function ProjectDetail() {
               />
             </label>
 
-            <label className="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-800 cursor-pointer">
-              <div>
-                <div className="font-medium text-slate-900 dark:text-white">
-                  Cho phép thành viên tạo công việc
-                </div>
-                <div className="text-xs text-slate-500">
-                  Thành viên có quyền tạo công việc mới trong dự án mà không cần vai trò quản lý
-                </div>
-              </div>
-              <input
-                type="checkbox"
-                checked={allowMemberCreate}
-                onChange={(e) => setAllowMemberCreate(e.target.checked)}
-                className="h-4 w-4 rounded text-primary"
-              />
-            </label>
+            <p className="text-sm text-slate-500">Task gốc chỉ do quản lý dự án tạo. Member thực hiện việc được giao; quyền sửa thông tin hoặc giao việc có thể cấp riêng tại Phân quyền dự án.</p>
           </div>
 
           <button
             onClick={handleSaveSettings}
-            disabled={savingSettings}
+            disabled={savingSettings||settingsVersion===null}
             className="btn btn-primary text-xs"
           >
             {savingSettings ? "Đang lưu..." : "Lưu cài đặt dự án"}

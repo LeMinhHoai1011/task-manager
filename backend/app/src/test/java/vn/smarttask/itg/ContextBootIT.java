@@ -22,9 +22,11 @@ class ContextBootIT extends ItgBase {
   }
 
   @Test
-  void flywayVersionIs16() {
-    // V2 additive migrations V13–V16 extend personal tasks, teams and assignments.
-    assertEquals("16", flyway.info().current().getVersion().getVersion());
+  void flywayVersionIs17() {
+    assertEquals("17", flyway.info().current().getVersion().getVersion());
+    assertEquals(17, flyway.info().applied().length);
+    assertEquals(0, flyway.info().pending().length);
+    assertTrue(flyway.validateWithResult().validationSuccessful);
     assertTrue(flyway.validateWithResult().validationSuccessful);
   }
 

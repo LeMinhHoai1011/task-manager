@@ -41,6 +41,7 @@ export default function Settings() {
   const [pushSupported, setPushSupported] = useState(false);
   const [pushSubscribed, setPushSubscribed] = useState(false);
   const [subscribingPush, setSubscribingPush] = useState(false);
+  const [pushDeliveryEnabled, setPushDeliveryEnabled] = useState(false);
 
   // Security password change form
   const [currentPassword, setCurrentPassword] = useState("");
@@ -61,6 +62,9 @@ export default function Settings() {
     }
     loadDevices();
     loadPreferences();
+    apiFetch<any>("/notifications/vapid/subscription-status").then((res) => {
+      setPushDeliveryEnabled((res?.data ?? res)?.delivery_status === "ENABLED");
+    }).catch(() => setPushDeliveryEnabled(false));
   }, []);
 
   const loadDevices = async () => {
@@ -98,6 +102,10 @@ export default function Settings() {
   };
 
   const handleSubscribeWebPush = async () => {
+    if (!pushDeliveryEnabled) {
+      showToast({ type: "warning", message: "Web Push đang tắt vì dịch vụ gửi chưa được hỗ trợ. Thông báo trong ứng dụng vẫn hoạt động." });
+      return;
+    }
     if (!pushSupported) {
       showToast({ type: "error", message: "Trình duyệt không hỗ trợ Web Push Notification" });
       return;
@@ -226,7 +234,7 @@ export default function Settings() {
   };
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
+    <div className="mx-auto w-full min-w-0 max-w-5xl space-y-6">
       {/* Header */}
       <div>
         <h1 className="page-title text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
@@ -238,7 +246,7 @@ export default function Settings() {
         </p>
       </div>
 
-      <div className="flex flex-col md:flex-row gap-6">
+      <div className="flex min-w-0 flex-col md:flex-row gap-6">
         {/* Navigation Tabs */}
         <div className="w-full md:w-56 shrink-0 flex md:flex-col gap-1 overflow-x-auto pb-2 md:pb-0 text-xs font-semibold">
           {[
@@ -266,7 +274,7 @@ export default function Settings() {
         </div>
 
         {/* Content Panel */}
-        <div className="flex-1 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-xs">
+        <div className="min-w-0 flex-1 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-xs">
           {/* TAB 1: PROFILE */}
           {activeTab === "profile" && (
             <div className="space-y-4 max-w-lg text-sm">
@@ -286,18 +294,19 @@ export default function Settings() {
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-500 mb-1">
-                  Vai trò hệ thống (RBAC)
+                  Vai trò tài khoản hệ thống
                 </label>
                 <input
                   type="text"
                   disabled
-                  value={user?.role || "MEMBER"}
+                  value={user?.role || "Chưa xác định"}
                   className="input text-xs bg-slate-50 dark:bg-slate-850 cursor-not-allowed font-semibold text-primary"
                 />
               </div>
             </div>
           )}
 
+          <p className="text-sm"><a href="/my-role">Xem vai trò Workspace/Project và việc cần làm của bạn →</a></p>
           {/* TAB 2: APPEARANCE */}
           {activeTab === "appearance" && (
             <div className="space-y-6 max-w-lg">
@@ -473,7 +482,7 @@ export default function Settings() {
                   Thiết bị & Web Push Notification
                 </h3>
                 <p className="text-xs text-slate-500 mt-1">
-                  Nhận thông báo tức thì trên trình duyệt hoặc thiết bị di động ngay cả khi không mở tab SmartTask.
+                  Thông báo trong ứng dụng vẫn hoạt động. Web Push đang tắt do chưa có dịch vụ gửi.
                 </p>
               </div>
 
@@ -484,17 +493,19 @@ export default function Settings() {
                     Thông báo đẩy trình duyệt (Web Push)
                   </h4>
                   <p className="text-xs text-slate-600 dark:text-slate-300 mt-1">
-                    {pushSubscribed
+                    {!pushDeliveryEnabled ? "Web Push chưa được hỗ trợ trên máy chủ này."
+                      : pushSubscribed
                       ? "✓ Đã cấp quyền thông báo trên trình duyệt này."
                       : "Nhấn nút bên dưới để cấp quyền nhận thông báo đẩy cho trình duyệt này (không popup tự động)."}
                   </p>
                 </div>
                 <button
                   onClick={handleSubscribeWebPush}
-                  disabled={subscribingPush || pushSubscribed}
+                  disabled={!pushDeliveryEnabled || subscribingPush || pushSubscribed}
                   className="btn btn-primary text-xs shrink-0"
                 >
-                  {subscribingPush
+                  {!pushDeliveryEnabled ? "Đã tắt"
+                    : subscribingPush
                     ? "Đang kích hoạt..."
                     : pushSubscribed
                     ? "✓ Đã kích hoạt"

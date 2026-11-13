@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { apiFetch, mutationOpts, newIdempotencyKey, unwrapData, unwrapList } from "../api/client";
+import type {TaskAccess} from "../auth/AccessContext";
+import {roleLabel} from "../auth/AccessContext";
 import WorkflowPanel from "./WorkflowPanel";
 import TaskResponsibility from "./TaskResponsibility";
 import ProjectTaskEditor from "../components/ProjectTaskEditor";
@@ -63,6 +65,7 @@ function fieldErr(cond: boolean, key: string): string | null {
 
 export default function TaskDetail() {
   const { id } = useParams();
+  const [access,setAccess]=useState<TaskAccess|null>(null);
   const [task, setTask] = useState<Task | null>(null);
   const [subtasks, setSubtasks] = useState<Subtask[]>([]);
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
@@ -82,6 +85,8 @@ export default function TaskDetail() {
 
   // Create forms.
   const [subTitle, setSubTitle] = useState("");
+  const [subtaskBusy,setSubtaskBusy]=useState(false);
+  const subtaskPending=useRef<{signature:string;key:string}|null>(null);
   const [clTitle, setClTitle] = useState("");
   const [tlDate, setTlDate] = useState("");
   const [tlMinutes, setTlMinutes] = useState("");
@@ -95,13 +100,15 @@ export default function TaskDetail() {
     const request=++loadSequence.current;
     setErr(null);
     setLoading(true);
+    setAccess(null);
     try {
       // GET /tasks/{id} trả envelope { data: TaskDto } — bóc canonical.
-      const r = await apiFetch(`/tasks/${id}`);
+      const [r,permissions] = await Promise.all([apiFetch(`/tasks/${id}`),apiFetch(`/tasks/${id}/access`)]);
       const d = unwrapData<Task>(r);
       if(request!==loadSequence.current)return;
       if (!d || typeof d !== "object") throw new Error("empty");
       setTask(d);
+      setAccess(unwrapData<TaskAccess>(permissions)??null);
     } catch (e: any) {
       if(request===loadSequence.current)setErr(e?.uiMessage ?? t("task.not_found"));
     } finally {
@@ -136,14 +143,18 @@ export default function TaskDetail() {
 
   // Subtasks persist through the parent-scoped API and survive reload.
   async function createSubtask() {
+    if(subtaskBusy||!id)return;
     const v = fieldErr(subTitle.trim().length > 0, "form.required");
     setFormErr(v);
     if (v) return;
     setFormErr(null);
     setFormOk(null);
+    setSubtaskBusy(true);
+    const signature=JSON.stringify({parent:id,title:subTitle.trim()});
+    if(subtaskPending.current?.signature!==signature)subtaskPending.current={signature,key:newIdempotencyKey()};
     try {
       const r = await apiFetch(`/tasks/${id}/subtasks`, {
-        ...mutationOpts({ idempotencyKey: newIdempotencyKey() }),
+        ...mutationOpts({ idempotencyKey: subtaskPending.current.key }),
         method: "POST",
         body: { title: subTitle.trim() },
       });
@@ -152,9 +163,12 @@ export default function TaskDetail() {
         await load();
       }
       setSubTitle("");
+      subtaskPending.current=null;
       setFormOk(t("task.created_ok"));
     } catch (e: any) {
       setFormErr(e?.uiMessage ?? t("error.generic"));
+    } finally {
+      setSubtaskBusy(false);
     }
   }
 
@@ -284,7 +298,8 @@ export default function TaskDetail() {
         {` · ${t("task.version")}: ${String(version)}`}
       </p>
       {task.description && <p className="mt-2 text-sm text-slate-600">{task.description}</p>}
-      <ProjectTaskEditor id={String(id)} title={task.title} description={task.description} version={String(version)} dueAt={task.due_at} onChanged={()=>void load()}/>
+      <p className="card mt-3" role="note">Vai trò trong dự án: <strong>{roleLabel(access?.role)}</strong>. {access?.review?"Bạn quản lý việc, giao việc và xử lý kết quả chờ duyệt.":access?.execute?"Bạn thực hiện việc được giao: bắt đầu, tick checklist, ghi thời gian và nộp hoàn thành.":"Bạn đang xem công việc; không được thay đổi tiến trình."}</p>
+      {access?.metadata&&<ProjectTaskEditor id={String(id)} title={task.title} description={task.description} version={String(version)} dueAt={task.due_at} onChanged={()=>void load()}/>}
       <ErrorAlert message={formErr} />
       {formOk && (
         <p role="status" className="mt-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">
@@ -295,47 +310,47 @@ export default function TaskDetail() {
         <div className="flex flex-col gap-4">
           <Card>
             <h2 className="text-sm font-semibold text-slate-900">{t("task.subtasks")}</h2>
-            <p className="mt-1 text-xs text-slate-500">Công việc con trong phạm vi quyền truy cập của bạn.</p>
+            <p className="mt-1 text-xs text-slate-500">Việc con tự thuộc cùng dự án với công việc cha, không cần chọn lại dự án.</p>
             <ul className="mt-2 flex flex-col gap-1.5">
               {subtasks.map((s) => (
                 <li key={s.id} className="flex items-center justify-between rounded-lg bg-slate-50 px-2.5 py-1.5 text-sm">
-                  <span>{s.title}</span>
+                  <Link to={`/tasks/${s.id}`} className="hover:underline">{s.title}</Link>
                   <Badge state={s.state}>{s.state}</Badge>
                 </li>
               ))}
               {subtasks.length === 0 && <li className="text-sm text-slate-400">—</li>}
             </ul>
             {moreSubtasks&&<Button variant="secondary" onClick={()=>void apiFetch(`/tasks/${id}/subtasks`,{query:{page:subtaskPage+1,size:20}}).then(r=>{const rows=unwrapList<Subtask>(r);setSubtasks(old=>[...old,...rows]);setSubtaskPage(n=>n+1);setMoreSubtasks(rows.length===20);}).catch(()=>setFormErr("Không tải được công việc con"))}>Tải thêm công việc con</Button>}
-            <div className="mt-2 flex gap-2">
-              <TextInput aria-label={t("task.subtask_title")} placeholder={t("task.subtask_title")} value={subTitle} onChange={(e) => setSubTitle(e.target.value)} />
-              <Button variant="secondary" size="sm" onClick={() => void createSubtask()}>
-                {t("task.add_subtask")}
+            {access?.subtask&&<div className="mt-2 flex gap-2">
+              <TextInput disabled={subtaskBusy} maxLength={200} aria-label={t("task.subtask_title")} placeholder={t("task.subtask_title")} value={subTitle} onChange={(e) => setSubTitle(e.target.value)} />
+              <Button disabled={subtaskBusy||!subTitle.trim()} variant="secondary" size="sm" onClick={() => void createSubtask()}>
+                {subtaskBusy?"Đang tạo...":t("task.add_subtask")}
               </Button>
-            </div>
+            </div>}
           </Card>
           <Card>
             <h2 className="text-sm font-semibold text-slate-900">{t("task.checklist")}</h2>
             <ul className="mt-2 flex flex-col gap-1.5 text-sm">
               {checklist.map((c) => (
                 <li key={c.id} className="flex items-center gap-2">
-                  <input type="checkbox" checked={!!c.done} disabled={tickBusy} onChange={e=>void tick(c,e.target.checked)} className="checkbox" aria-label={c.title ?? c.label ?? c.id} />
+                  <input type="checkbox" checked={!!c.done} disabled={tickBusy||!access?.execute} onChange={e=>void tick(c,e.target.checked)} className="checkbox" aria-label={c.title ?? c.label ?? c.id} />
                   <span className={c.done ? "text-slate-400 line-through" : ""}>{c.title ?? c.label ?? c.id}</span>
                 </li>
               ))}
               {checklist.length === 0 && <li className="text-sm text-slate-400">—</li>}
             </ul>
-            <div className="mt-2 flex gap-2">
+            {access?.structure&&<div className="mt-2 flex gap-2">
               <TextInput aria-label={t("task.checklist_title")} placeholder={t("task.checklist_title")} value={clTitle} onChange={(e) => setClTitle(e.target.value)} />
               <Button variant="secondary" size="sm" onClick={() => void createChecklist()}>
                 {t("task.add_checklist")}
               </Button>
-            </div>
+            </div>}
           </Card>
           <Card>
             <h2 className="text-sm font-semibold text-slate-900">{t("task.dependencies")}</h2>
-            <Button variant="secondary" size="sm" onClick={() => { setDepOpen(true); setDepErr(null); }}>
+            {access?.structure&&<Button variant="secondary" size="sm" onClick={() => { setDepOpen(true); setDepErr(null); }}>
               {t("task.add_dependency")}
-            </Button>
+            </Button>}
             {depOpen && (
               <div role="dialog" aria-modal="true" aria-label={t("task.add_dependency")} className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
                 <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-lg">
@@ -380,14 +395,14 @@ export default function TaskDetail() {
                 </tbody>
               </table>
             )}
-            <div className="mt-2 flex flex-wrap gap-2">
+            {access?.execute&&<div className="mt-2 flex flex-wrap gap-2">
               <TextInput className="!w-36" aria-label={t("task.work_date")} placeholder="YYYY-MM-DD" value={tlDate} onChange={(e) => setTlDate(e.target.value)} />
               <TextInput className="!w-24" aria-label={t("task.minutes")} placeholder="60" inputMode="numeric" value={tlMinutes} onChange={(e) => setTlMinutes(e.target.value)} />
               <TextInput className="!w-44" aria-label={t("task.note")} placeholder={t("task.note")} value={tlNote} onChange={(e) => setTlNote(e.target.value)} />
               <Button variant="secondary" size="sm" onClick={() => void createTimelog()}>
                 {t("task.add_timelog")}
               </Button>
-            </div>
+            </div>}
           </Card>
           <Card>
             <h2 className="text-sm font-semibold text-slate-900">{t("task.comments")}</h2>
@@ -405,17 +420,17 @@ export default function TaskDetail() {
                 ))}
               </ul>
             )}
-            <div className="mt-2 flex gap-2">
+            {access?.comment&&<div className="mt-2 flex gap-2">
               <TextInput aria-label={t("task.comment_body")} placeholder={t("task.comment_body")} value={commentBody} onChange={(e) => setCommentBody(e.target.value)} />
               <Button variant="secondary" size="sm" onClick={() => void createComment()}>
                 {t("task.add_comment")}
               </Button>
-            </div>
+            </div>}
           </Card>
         </div>
         <div className="flex flex-col gap-4">
-          <WorkflowPanel disabled={tickBusy} taskId={String(id)} version={String(version)} role={task.role} state={task.state} onDone={() => void load()} />
-          <TaskResponsibility id={String(id)} version={String(version)} onChanged={() => void load()} />
+          <WorkflowPanel disabled={tickBusy} taskId={String(id)} version={String(version)} role={access?.role} allowedActions={access?.workflowActions??[]} state={task.state} onDone={() => void load()} />
+          <TaskResponsibility canAssign={!!access?.assignment} id={String(id)} version={String(version)} onChanged={() => void load()} />
           <Card>
             <h2 className="text-sm font-semibold text-slate-900">{t("task.timeline")}</h2>
             {timeline.length === 0 ? (

@@ -15,6 +15,7 @@ public interface TaskAssignmentRepository extends JpaRepository<TaskAssignment, 
 
   /** F2.5: EXISTS / COUNT / scoped-id queries instead of loading full rows. */
   boolean existsByTaskIdAndUserId(UUID taskId, UUID userId);
+  boolean existsByTaskIdAndUserIdAndStatus(UUID taskId, UUID userId, String status);
   long countByTaskIdAndStatus(UUID taskId, String status);
 
   @Query("select a.taskId from TaskAssignment a where a.userId = :u and a.status = 'ACTIVE'")

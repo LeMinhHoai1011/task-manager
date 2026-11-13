@@ -1,9 +1,10 @@
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { RequireAuth, RequireAdmin, isAdminRole } from "../App";
+import { RequireAuth, RequireAdmin } from "../App";
 
-const { mockUseAuth } = vi.hoisted(() => ({
+const { mockUseAuth, mockUseAccess } = vi.hoisted(() => ({
+  mockUseAccess: vi.fn(()=>({systemAdmin:false,loading:false})),
   mockUseAuth: vi.fn((): { user: { role?: string; id?: string } | null } => ({ user: null })),
 }));
 
@@ -15,6 +16,8 @@ vi.mock("../auth/AuthContext", async (importOriginal) => {
   };
 });
 
+vi.mock("../auth/AccessContext",()=>({useAccess:()=>mockUseAccess()}));
+
 function renderWithRouter(ui: React.ReactElement, path = "/tasks") {
   return render(
     <MemoryRouter initialEntries={[path]}>
@@ -25,15 +28,6 @@ function renderWithRouter(ui: React.ReactElement, path = "/tasks") {
     </MemoryRouter>
   );
 }
-
-describe("isAdminRole", () => {
-  it("nhận diện admin/system_admin (mọi case)", () => {
-    expect(isAdminRole("admin")).toBe(true);
-    expect(isAdminRole("SYSTEM_ADMIN")).toBe(true);
-    expect(isAdminRole("user")).toBe(false);
-    expect(isAdminRole(undefined)).toBe(false);
-  });
-});
 
 describe("RequireAuth", () => {
   beforeEach(() => {
@@ -63,10 +57,11 @@ describe("RequireAuth", () => {
 
 describe("RequireAdmin", () => {
   beforeEach(() => {
+    mockUseAccess.mockReturnValue({systemAdmin:false,loading:false});
     localStorage.clear();
   });
 
-  it("role non-admin đã rõ thì redirect về /tasks", () => {
+  it("Workspace Admin không có global grant bị chặn", () => {
     mockUseAuth.mockReturnValue({ user: { role: "member" } });
     render(
       <MemoryRouter initialEntries={["/admin"]}>
@@ -83,11 +78,11 @@ describe("RequireAdmin", () => {
         </Routes>
       </MemoryRouter>
     );
-    expect(screen.getByText("Tasks page")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("không có quyền quản trị hệ thống");
     expect(screen.queryByText("Admin secret")).not.toBeInTheDocument();
   });
 
-  it("role unknown (backend không có /me) thì cho vào, để backend 403", () => {
+  it("quyền chưa xác định không được truy cập", () => {
     mockUseAuth.mockReturnValue({ user: { id: "u1" } });
     render(
       <MemoryRouter initialEntries={["/admin"]}>
@@ -104,10 +99,11 @@ describe("RequireAdmin", () => {
         </Routes>
       </MemoryRouter>
     );
-    expect(screen.getByText("Admin secret")).toBeInTheDocument();
+    expect(screen.queryByText("Admin secret")).not.toBeInTheDocument();
   });
 
-  it("role admin thì cho vào", () => {
+  it("global SYSTEM_ADMIN grant thì cho vào", () => {
+    mockUseAccess.mockReturnValue({systemAdmin:true,loading:false});
     mockUseAuth.mockReturnValue({ user: { role: "admin" } });
     render(
       <MemoryRouter initialEntries={["/admin"]}>

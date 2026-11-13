@@ -369,7 +369,7 @@ main { padding: 16px; flex: 1; }
   .header-home, .header-divider { display: none; }
   .header-location { gap: 6px; }
   .app-header { height: 56px; }
-  .app-content { padding: 20px 14px; }
+  .app-content { width: 100%; min-width: 0; padding: 20px 14px; }
   .page-title { font-size: 22px; line-height: 1.3; }
   .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .metric-card { padding: 14px; }

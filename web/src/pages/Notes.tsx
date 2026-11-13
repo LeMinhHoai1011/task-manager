@@ -2,6 +2,9 @@ import { useEffect, useState, useRef, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { apiFetch } from "../api/client";
 import { useToast } from "../components/ToastContext";
+import {useAccess,type TaskAccess} from "../auth/AccessContext";
+import {useAuth} from "../auth/AuthContext";
+import {unwrapData} from "../api/client";
 import AppIcon from "../components/AppIcon";
 
 export interface NoteItem {
@@ -21,6 +24,8 @@ export interface NoteItem {
 }
 
 export default function Notes() {
+  const access=useAccess();const {user}=useAuth();
+  const [taskAccess,setTaskAccess]=useState<TaskAccess|null>(null);
   const [notes, setNotes] = useState<NoteItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -32,6 +37,7 @@ export default function Notes() {
   const [filterScope, setFilterScope] = useState<string>("ALL");
   const [filterTag, setFilterTag] = useState<string>("");
   const [search, setSearch] = useState<string>("");
+  const [createProject,setCreateProject]=useState(searchParams.get("project_id")??"");
   const [showPreview, setShowPreview] = useState<boolean>(false);
   const [mobileEditorOpen, setMobileEditorOpen] = useState<boolean>(false);
 
@@ -49,6 +55,21 @@ export default function Notes() {
     () => notes.find((n) => n.id === selectedId) || null,
     [notes, selectedId]
   );
+
+  function canEdit(note:NoteItem|null):boolean {
+    if(!note)return false;
+    if(note.scope==="PERSONAL")return note.ownerUserId===user?.id;
+    if(note.scope==="PROJECT")return access.projects.some(p=>p.id===note.projectId&&p.canManage);
+    if(note.scope==="TASK")return note.id===activeNote?.id&&!!taskAccess?.metadata;
+    const ws=access.workspaces.find(w=>w.id===note.workspaceId);
+    return !!ws&&ws.status==="ACTIVE"&&(ws.canManage||(ws.role==="MEMBER"&&note.ownerUserId===user?.id));
+  }
+  const editable=canEdit(activeNote);
+  useEffect(()=>{
+    let current=true;setTaskAccess(null);
+    if(activeNote?.scope==="TASK"&&activeNote.taskId)void apiFetch(`/tasks/${activeNote.taskId}/access`).then(r=>{if(current)setTaskAccess(unwrapData<TaskAccess>(r)??null);}).catch(()=>{});
+    return()=>{current=false;};
+  },[activeNote?.id,activeNote?.taskId,activeNote?.scope]);
 
   const fetchNotes = async () => {
     try {
@@ -106,6 +127,7 @@ export default function Notes() {
   // Debounced Auto-save
   const saveTimeoutRef = useRef<any>(null);
   const handleContentChange = (newTitle: string, newContent: string) => {
+    if(!editable)return;
     setEditTitle(newTitle);
     setEditContent(newContent);
     if (!selectedId) return;
@@ -117,13 +139,10 @@ export default function Notes() {
         const payload = {
           title: newTitle.trim() || "Ghi chú không tên",
           content: newContent,
-          scope: editScope,
-          tags: editTags,
-          isPinned: editPinned,
-          projectId: editProjectId || null,
         };
         const updated = await apiFetch<any>(`/notes/${selectedId}`, {
           method: "PUT",
+          ifMatch: String(activeNote?.version),
           body: JSON.stringify(payload),
         });
         const noteData = updated?.data || updated;
@@ -131,7 +150,7 @@ export default function Notes() {
           prev.map((n) => (n.id === selectedId ? { ...n, ...noteData } : n))
         );
       } catch (e: any) {
-        // silent fail on draft debounce
+        showToast({ type: "error", message: "Chưa lưu được ghi chú. Giữ lại nội dung và tải lại phiên bản mới trước khi thử lại." });
       } finally {
         setSaving(false);
       }
@@ -139,11 +158,13 @@ export default function Notes() {
   };
 
   const handleCreateNote = async () => {
+    if(createProject&&!access.projects.some(p=>p.id===createProject&&p.canManage)){showToast({type:"error",message:"Bạn không có quyền tạo ghi chú trong dự án này"});return;}
     try {
       const payload = {
         title: "Ghi chú mới",
         content: "",
-        scope: filterScope !== "ALL" ? filterScope : "PERSONAL",
+        scope: createProject?"PROJECT":"PERSONAL",
+        ...(createProject?{projectId:createProject}:{}),
         isPinned: false,
       };
       const res = await apiFetch<any>(`/notes`, {
@@ -162,11 +183,12 @@ export default function Notes() {
 
   const handleTogglePin = async (e: React.MouseEvent, noteId: string) => {
     e.stopPropagation();
+    if(!canEdit(notes.find(n=>n.id===noteId)??null))return;
     try {
       const res = await apiFetch<any>(`/notes/${noteId}/pin`, { method: "PATCH" });
       const updated = res?.data || res;
       setNotes((prev) =>
-        prev.map((n) => (n.id === noteId ? { ...n, isPinned: !n.isPinned } : n))
+          prev.map((n) => (n.id === noteId ? { ...n, ...updated } : n))
       );
       if (selectedId === noteId) setEditPinned(!editPinned);
       showToast({
@@ -179,7 +201,7 @@ export default function Notes() {
   };
 
   const handleDeleteNote = async () => {
-    if (!selectedId || !activeNote) return;
+    if (!selectedId || !activeNote || !editable) return;
     const deletedNote = activeNote;
     const deletedId = selectedId;
 
@@ -212,7 +234,7 @@ export default function Notes() {
   };
 
   const handleMetadataChange = async (updates: Partial<NoteItem>) => {
-    if (!selectedId) return;
+    if (!selectedId || !editable) return;
     try {
       const payload = {
         title: editTitle,
@@ -224,6 +246,7 @@ export default function Notes() {
       };
       const res = await apiFetch<any>(`/notes/${selectedId}`, {
         method: "PUT",
+        ifMatch: String(activeNote?.version),
         body: JSON.stringify(payload),
       });
       const updated = res?.data || res;
@@ -238,6 +261,7 @@ export default function Notes() {
 
   // Insert markdown helper tokens
   const insertMarkdown = (before: string, after: string = "") => {
+    if(!editable)return;
     const textarea = document.getElementById("note-editor-textarea") as HTMLTextAreaElement;
     if (!textarea) return;
     const start = textarea.selectionStart;
@@ -295,13 +319,13 @@ export default function Notes() {
             Quản lý ghi chú cá nhân, dự án, chia sẻ nhóm với Markdown editor
           </p>
         </div>
-        <button
+        <div className="flex flex-wrap gap-2"><select aria-label="Nơi tạo ghi chú" value={createProject} onChange={e=>setCreateProject(e.target.value)}><option value="">Cá nhân (riêng tư)</option>{access.projects.filter(p=>p.canManage).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select><button
           onClick={handleCreateNote}
           className="btn btn-primary shadow-xs hover:shadow-md transition flex items-center gap-2"
         >
           <AppIcon name="plus" size={16} />
           <span>Tạo ghi chú mới</span>
-        </button>
+        </button></div>
       </div>
 
       {/* 3-Column Workspace */}
@@ -402,7 +426,7 @@ export default function Notes() {
                         {note.title || "Ghi chú không tên"}
                       </h4>
                       <button
-                        onClick={(e) => handleTogglePin(e, note.id)}
+                        disabled={!canEdit(note)} onClick={(e) => handleTogglePin(e, note.id)}
                         title={note.isPinned ? "Bỏ ghim" : "Ghim"}
                         className={`shrink-0 p-1 rounded-sm text-xs transition ${
                           note.isPinned
@@ -460,42 +484,42 @@ export default function Notes() {
                   {/* Markdown formatting tools */}
                   <div className="flex items-center gap-1 text-xs">
                     <button
-                      onClick={() => insertMarkdown("**", "**")}
+                      disabled={!editable} onClick={() => insertMarkdown("**", "**")}
                       title="In đậm (Bold)"
                       className="px-2 py-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 font-bold"
                     >
                       B
                     </button>
                     <button
-                      onClick={() => insertMarkdown("*", "*")}
+                      disabled={!editable} onClick={() => insertMarkdown("*", "*")}
                       title="In nghiêng (Italic)"
                       className="px-2 py-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 italic"
                     >
                       I
                     </button>
                     <button
-                      onClick={() => insertMarkdown("### ")}
+                      disabled={!editable} onClick={() => insertMarkdown("### ")}
                       title="Tiêu đề"
                       className="px-2 py-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 font-semibold"
                     >
                       H3
                     </button>
                     <button
-                      onClick={() => insertMarkdown("- ")}
+                      disabled={!editable} onClick={() => insertMarkdown("- ")}
                       title="Danh sách gạch đầu dòng"
                       className="px-2 py-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
                     >
                       • List
                     </button>
                     <button
-                      onClick={() => insertMarkdown("- [ ] ")}
+                      disabled={!editable} onClick={() => insertMarkdown("- [ ] ")}
                       title="Checklist công việc"
                       className="px-2 py-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 font-mono"
                     >
                       ☑ Task
                     </button>
                     <button
-                      onClick={() => insertMarkdown("`", "`")}
+                      disabled={!editable} onClick={() => insertMarkdown("`", "`")}
                       title="Mã (Code)"
                       className="px-2 py-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 font-mono"
                     >
@@ -524,12 +548,13 @@ export default function Notes() {
                 </div>
               </div>
 
+              {!editable&&<p role="note" className="px-6 text-sm">Ghi chú được chia sẻ chỉ đọc. Bạn vẫn có thể tạo ghi chú cá nhân riêng.</p>}
               {/* Title input */}
               <div className="px-6 pt-5 pb-2">
                 <input
                   type="text"
                   placeholder="Tiêu đề ghi chú..."
-                  value={editTitle}
+                  readOnly={!editable} value={editTitle}
                   onChange={(e) => handleContentChange(e.target.value, editContent)}
                   className="w-full text-2xl font-bold bg-transparent border-0 focus:outline-hidden text-slate-900 dark:text-white placeholder-slate-300 dark:placeholder-slate-600"
                 />
@@ -591,7 +616,7 @@ export default function Notes() {
                 ) : (
                   <textarea
                     id="note-editor-textarea"
-                    value={editContent}
+                    readOnly={!editable} value={editContent}
                     onChange={(e) => handleContentChange(editTitle, e.target.value)}
                     placeholder="Bắt đầu viết ghi chú bằng Markdown... (# Tiêu đề, - Checklist, **in đậm**)"
                     className="w-full h-full bg-transparent resize-none border-0 focus:outline-hidden text-sm leading-relaxed text-slate-800 dark:text-slate-200 placeholder-slate-400"
@@ -625,7 +650,7 @@ export default function Notes() {
                 Phạm vi chia sẻ
               </label>
               <select
-                value={editScope}
+                disabled value={editScope}
                 onChange={(e) => {
                   const s = e.target.value as any;
                   setEditScope(s);
@@ -646,7 +671,7 @@ export default function Notes() {
                   Dự án liên quan
                 </label>
                 <select
-                  value={editProjectId}
+                  disabled value={editProjectId}
                   onChange={(e) => {
                     setEditProjectId(e.target.value);
                     handleMetadataChange({ projectId: e.target.value });
@@ -671,7 +696,7 @@ export default function Notes() {
               <input
                 type="text"
                 placeholder="idea, sprint, design..."
-                value={editTags}
+                disabled={!editable} value={editTags}
                 onChange={(e) => setEditTags(e.target.value)}
                 onBlur={() => handleMetadataChange({ tags: editTags })}
                 className="input text-xs"
@@ -684,7 +709,7 @@ export default function Notes() {
                 Ghim lên đầu
               </span>
               <button
-                type="button"
+                type="button" disabled={!editable}
                 onClick={() => {
                   const nextPinned = !editPinned;
                   setEditPinned(nextPinned);
@@ -723,7 +748,7 @@ export default function Notes() {
             {/* Delete button with Toast Undo */}
             <div className="mt-auto pt-4 border-t border-slate-100 dark:border-slate-800">
               <button
-                onClick={handleDeleteNote}
+                disabled={!editable} onClick={handleDeleteNote}
                 className="btn btn-danger w-full text-xs flex items-center justify-center gap-1.5"
               >
                 <AppIcon name="close" size={14} />

@@ -34,7 +34,7 @@ file:
 smarttask:
   self-registration: true
   bootstrap:
-    admin-username: admin
+    admin-username: ${SMARTTASK_BOOTSTRAP_ADMIN_USERNAME:}
   push:
     scan:
       delay: 60000

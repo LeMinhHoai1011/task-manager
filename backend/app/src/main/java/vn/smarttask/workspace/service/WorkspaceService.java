@@ -224,6 +224,7 @@ public class WorkspaceService {
     }
     m.setStatus("REMOVED");
     members.save(m);
+    revokeProjectMemberships(wsId, targetId);
     audit.append(actorId, "workspace.member.remove", "workspace", wsId, "ALLOWED", null, "{}");
   }
 
@@ -251,7 +252,19 @@ public class WorkspaceService {
     }
     m.setStatus("REMOVED");
     members.save(m);
+    revokeProjectMemberships(wsId, userId);
     audit.append(userId, "workspace.leave", "workspace", wsId, "ALLOWED", null, "{}");
+  }
+
+  private void revokeProjectMemberships(UUID workspaceId, UUID userId) {
+    for (Project project : projects.findByWorkspaceId(workspaceId)) {
+      projectMembers.findMembership(project.getId(), userId).ifPresent(m -> {
+        m.setStatus("REMOVED");
+        projectMembers.save(m);
+        outbox.emit("project", project.getId(), "project.member.removed",
+            "{\"user_id\":\"" + userId + "\"}");
+      });
+    }
   }
 
   @Transactional

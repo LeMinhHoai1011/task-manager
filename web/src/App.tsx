@@ -1,7 +1,7 @@
 import "./styles.css";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import type { ReactNode } from "react";
-import { AuthProvider, useAuth } from "./auth/AuthContext";
+import { AuthProvider } from "./auth/AuthContext";
 import { getToken } from "./api/client";
 import Layout from "./components/Layout";
 import Login from "./pages/Login";
@@ -24,6 +24,8 @@ import Settings from "./pages/Settings";
 import Admin from "./pages/Admin";
 import Ai from "./pages/Ai";
 import ChangePassword from "./pages/ChangePassword";
+import {AccessProvider,useAccess} from "./auth/AccessContext";
+import RoleGuide from "./pages/RoleGuide";
 import { ENABLE_AI } from "./config";
 import { RealtimeProvider } from "./realtime/RealtimeContext";
 import { ThemeProvider } from "./components/ThemeContext";
@@ -33,6 +35,7 @@ export default function App() {
     <ThemeProvider>
     <AuthProvider>
       <RealtimeProvider>
+        <AccessProvider>
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<Login />} />
@@ -58,6 +61,7 @@ export default function App() {
                       <Route path="/notifications" element={<Notifications />} />
                       <Route path="/reports" element={<Reports />} />
                       <Route path="/settings" element={<Settings />} />
+                      <Route path="/my-role" element={<RoleGuide />} />
                       <Route path="/change-password" element={<ChangePassword />} />
                       <Route path="/ai" element={ENABLE_AI ? <Ai /> : <Navigate to="/tasks" replace />} />
                       <Route path="/admin" element={<RequireAdmin><Admin /></RequireAdmin>} />
@@ -69,6 +73,7 @@ export default function App() {
             />
           </Routes>
         </BrowserRouter>
+        </AccessProvider>
       </RealtimeProvider>
     </AuthProvider>
     </ThemeProvider>
@@ -82,19 +87,10 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-/** Route admin: backend không có endpoint profile/role nên web không biết role chắc chắn.
- * Chỉ redirect khi role đã rõ là non-admin; role unknown thì cho vào và để backend
- * trả 403 trung tính (backend mới là nguồn sự thật). */
+/** System administration requires a live global grant, separate from scoped roles. */
 export function RequireAdmin({ children }: { children: ReactNode }) {
-  const role = useAuth().user?.role;
-  if (role !== undefined && role !== null && role !== "" && !isAdminRole(role)) {
-    return <Navigate to="/tasks" replace />;
-  }
+  const access=useAccess();
+  if(access.loading)return <p role="status">Đang kiểm tra quyền hệ thống…</p>;
+  if(!access.systemAdmin)return <p role="alert">Bạn không có quyền quản trị hệ thống. Owner/Admin Workspace chỉ quản lý phạm vi Workspace được giao.</p>;
   return <>{children}</>;
 }
-
-function isAdminRole(role?: string): boolean {
-  return role === "admin" || role === "system_admin" || role === "ADMIN" || role === "SYSTEM_ADMIN";
-}
-
-export { isAdminRole };

@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { apiFetch, unwrapPage, unwrapData, mutationOpts, newIdempotencyKey } from "../api/client";
 import { t } from "../i18n";
 import { useRealtimeEvent } from "../realtime/RealtimeContext";
+import {useAccess} from "../auth/AccessContext";
 import CreateProjectTask from "../components/CreateProjectTask";
 import { Badge, Button, Card, EmptyState, ErrorAlert, Select, Spinner, TextInput, stateLabel } from "../components/ui";
 import AppIcon from "../components/AppIcon";
@@ -29,6 +30,7 @@ interface TaskRow {
 
 export default function Tasks() {
   const [params] = useSearchParams();
+  const access=useAccess();
   const [state, setState] = useState("");
   const [priority, setPriority] = useState("");
   const [project, setProject] = useState(() => params.get("project") ?? params.get("project_id") ?? "");
@@ -352,7 +354,7 @@ export default function Tasks() {
         </Select>
       </div>
 
-      <CreateProjectTask onCreated={() => void load(null)} />
+      {(project?access.projects.some(p=>p.id===project&&p.canCreateTask):access.projects.some(p=>p.canCreateTask))&&<CreateProjectTask projectId={project||undefined} projectName={projects.find(p=>p.id===project)?.name} initialOpen={params.get("create")==="1"} onCreated={() => void load(null)} />}
 
       {err && items.length > 0 && <ErrorAlert message={err} />}
 

@@ -101,7 +101,6 @@ export default function Ai() {
     if (terminal.includes(String(job.status).toUpperCase())) return;
     const timer = window.setInterval(() => void refreshJob(job.id), 3000);
     return () => window.clearInterval(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job, suggestion]);
 
   async function request() {

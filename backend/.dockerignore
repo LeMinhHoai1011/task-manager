@@ -6,3 +6,8 @@
 *.log
 **/target/*
 !app/target/smart-task-app-0.0.1-SNAPSHOT.jar
+.env
+.env.*
+**/var/
+**/*.dump
+**/*.backup

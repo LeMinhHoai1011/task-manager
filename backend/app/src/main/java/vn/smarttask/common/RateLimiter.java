@@ -28,17 +28,25 @@ public class RateLimiter {
 
   private final Map<String, Window> windows = new ConcurrentHashMap<>();
   private final Clock clock;
+  private int checks;
+  private static final int MAX_KEYS = 10_000;
 
   public RateLimiter(Clock clock) { this.clock = clock; }
   public RateLimiter() { this(java.time.Clock.systemUTC()); }
 
   public record Verdict(boolean allowed, long retryAfterSeconds, Bucket bucket) {}
 
-  public Verdict check(Bucket bucket, String key) {
+  public synchronized Verdict check(Bucket bucket, String key) {
     Limit lim = LIMITS.get(bucket);
     String k = bucket.name() + ":" + key;
     Instant now = clock.instant();
+    if ((++checks & 255) == 0) {
+      windows.entrySet().removeIf(e -> !e.getValue().start().plusSeconds(60).isAfter(now));
+    }
     Window w = windows.get(k);
+    if (w == null && windows.size() >= MAX_KEYS) {
+      return new Verdict(false, 60, bucket);
+    }
     if (w == null || Duration.between(w.start(), now).compareTo(lim.window()) >= 0) {
       windows.put(k, new Window(now, 1));
       return new Verdict(true, 0, bucket);

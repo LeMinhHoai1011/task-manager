@@ -13,6 +13,10 @@ public class TeamController {
   public record Create(String name) {}
   public record Membership(UUID userId, String role) {}
   public record Link(UUID teamId) {}
+  @GetMapping("/teams/{id}/access")
+  public ApiResult<?> access(@PathVariable UUID id) {
+    return ApiResult.ok(teams.capabilities(CurrentActor.userId(),id),"teams.access.success");
+  }
   @GetMapping("/workspaces/{id}/team-candidates")
   public ApiResult<?> candidates(@PathVariable UUID id,@RequestParam(defaultValue="0") int page,@RequestParam(defaultValue="20") int size) {
     return ApiResult.ok(teams.candidates(CurrentActor.userId(),id,page,size),"teams.candidates");

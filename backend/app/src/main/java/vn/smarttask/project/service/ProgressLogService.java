@@ -18,13 +18,15 @@ public class ProgressLogService {
   private final ProgressLogRepository logs;
   private final ProjectRepository projects;
   private final ProjectMembershipRepository members;
+  private final vn.smarttask.security.PolicyEnforcer policy;
 
   public ProgressLogService(ProgressLogRepository logs,
                             ProjectRepository projects,
-                            ProjectMembershipRepository members) {
+                            ProjectMembershipRepository members, vn.smarttask.security.PolicyEnforcer policy) {
     this.logs = logs;
     this.projects = projects;
     this.members = members;
+    this.policy = policy;
   }
 
   public record ProgressLogDto(
@@ -101,6 +103,8 @@ public class ProgressLogService {
         .filter(l -> l.getProjectId().equals(projectId))
         .orElseThrow(() -> AppException.notFound("Không tìm thấy nhật ký tiến độ"));
 
+    if(!userId.equals(log.getCreatedBy()))policy.requireProjectWrite(userId,projectId);
+
     if (expectedVersion != null && log.getVersion() != expectedVersion) {
       throw AppException.stateConflict("VERSION_CONFLICT", "Nhật ký tiến độ đã bị thay đổi bởi phiên khác");
     }
@@ -123,10 +127,14 @@ public class ProgressLogService {
         .filter(l -> l.getProjectId().equals(projectId))
         .orElseThrow(() -> AppException.notFound("Không tìm thấy nhật ký tiến độ"));
 
+    if(!userId.equals(log.getCreatedBy()))policy.requireProjectWrite(userId,projectId);
+
     logs.delete(log);
   }
 
   private void verifyMembership(UUID userId, UUID projectId, boolean requireWrite) {
+    if(requireWrite)policy.requireProjectContribution(userId,projectId);
+    else policy.requireProjectRead(userId,projectId);
     if (!projects.existsById(projectId)) {
       throw AppException.notFound("Không tìm thấy dự án");
     }

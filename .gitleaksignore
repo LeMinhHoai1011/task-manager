@@ -1,0 +1,5 @@
+# Reviewed 2026-11-13: documentation example Idempotency-Key UUID, not an
+# authentication credential. Exact historical fingerprints only; no file-wide exemption.
+6e8a0dfe77fa4e0f1671e9ba3c55c46210c63d3a:docs/03-API-CONTRACT.md:generic-api-key:402
+e75c449342d461f3dbe7d05241ca90553661f564:docs/03-API-CONTRACT.md:generic-api-key:402
+0a5c925d0e8c6c0d118a1e6ba08a06b074ddde70:docs/03-API-CONTRACT.md:generic-api-key:402

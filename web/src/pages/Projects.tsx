@@ -4,6 +4,7 @@ import { apiFetch, mutationOpts, newIdempotencyKey, unwrapPage } from "../api/cl
 import { t } from "../i18n";
 import { useRealtimeEvent } from "../realtime/RealtimeContext";
 import { Button, Card, EmptyState, ErrorAlert, Select, Spinner, TextInput } from "../components/ui";
+import {useAccess,roleLabel} from "../auth/AccessContext";
 import AppIcon from "../components/AppIcon";
 
 interface Project {
@@ -19,6 +20,8 @@ interface WorkspaceOption {
 
 export default function Projects() {
   const [params] = useSearchParams();
+  const access=useAccess();
+  const canCreate=access.workspaces.some(w=>w.canCreateProject);
   const [items, setItems] = useState<Project[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -72,7 +75,6 @@ export default function Projects() {
 
   useEffect(() => {
     void load(null, wsFilter.trim() || undefined);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [load]);
 
   useEffect(() => {
@@ -123,7 +125,7 @@ export default function Projects() {
             <span>{t("nav.projects")}</span>
           </h1>
           <p className="page-subtitle text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Quản lý tất cả dự án, phân công thành viên, theo dõi tiến độ và kiểm soát phê duyệt.
+            Các dự án bạn tham gia. Thao tác quản lý chỉ xuất hiện trong dự án bạn được giao quản lý.
           </p>
         </div>
 
@@ -150,7 +152,7 @@ export default function Projects() {
             </button>
           </div>
 
-          <Button
+          {canCreate&&<Button
             variant="primary"
             size="sm"
             onClick={() => {
@@ -161,7 +163,7 @@ export default function Projects() {
           >
             <AppIcon name="plus" size={15} />
             <span>{t("projects.new")}</span>
-          </Button>
+          </Button>}
         </div>
       </div>
 
@@ -228,13 +230,13 @@ export default function Projects() {
                   </div>
                   <p className="mt-1 text-xs text-slate-400 flex items-center gap-1.5">
                     <AppIcon name="workspace" size={13} />
-                    <span>{wsName}</span>
+                    <span>{wsName} · {roleLabel(access.projects.find(a=>a.id===p.id)?.role)}</span>
                   </p>
                 </div>
 
                 <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
                   <div className="flex flex-wrap gap-1.5">
-                    {p.status === "PLANNING" && (
+                    {access.projects.some(a=>a.id===p.id&&a.canManage)&&p.status === "PLANNING" && (
                       <Button
                         size="sm"
                         disabled={actionBusy}
@@ -244,7 +246,7 @@ export default function Projects() {
                         Kích hoạt
                       </Button>
                     )}
-                    <Button
+                    {access.projects.some(a=>a.id===p.id&&a.canManage)&&<Button
                       size="sm"
                       variant="secondary"
                       disabled={actionBusy}
@@ -252,7 +254,7 @@ export default function Projects() {
                       className="!text-[11px] !h-7 !px-2"
                     >
                       Bật/tắt duyệt
-                    </Button>
+                    </Button>}
                   </div>
                   <div className="flex items-center gap-3 text-xs">
                     <Link
@@ -302,7 +304,7 @@ export default function Projects() {
                     </td>
                     <td className="p-3.5">
                       <div className="flex gap-1.5">
-                        {p.status === "PLANNING" && (
+                        {access.projects.some(a=>a.id===p.id&&a.canManage)&&p.status === "PLANNING" && (
                           <Button
                             size="sm"
                             disabled={actionBusy}
@@ -312,7 +314,7 @@ export default function Projects() {
                             Kích hoạt
                           </Button>
                         )}
-                        <Button
+                        {access.projects.some(a=>a.id===p.id&&a.canManage)&&<Button
                           size="sm"
                           variant="secondary"
                           disabled={actionBusy}
@@ -320,7 +322,7 @@ export default function Projects() {
                           className="!text-[10px] !h-6 !px-2"
                         >
                           Bật/tắt duyệt
-                        </Button>
+                        </Button>}
                       </div>
                     </td>
                     <td className="p-3.5 text-right">
@@ -374,7 +376,7 @@ export default function Projects() {
                 className="text-xs"
               >
                 <option value="">Chọn không gian làm việc</option>
-                {workspaces.map((w) => (
+                {workspaces.filter(w=>access.workspaces.some(a=>a.id===w.id&&a.canCreateProject)).map((w) => (
                   <option key={w.id} value={w.id}>
                     {w.name}
                   </option>

@@ -53,7 +53,9 @@ public class NoteController {
     if (ifMatch != null && !ifMatch.isBlank()) {
       try {
         expectedVersion = Long.parseLong(ifMatch.replace("\"", "").trim());
-      } catch (NumberFormatException ignored) {}
+      } catch (NumberFormatException ex) {
+        throw vn.smarttask.common.AppException.badRequest("INVALID_IF_MATCH", "Invalid If-Match version");
+      }
     }
     return ResponseEntity.ok(ApiResult.ok(notes.updateNote(userId, id, req, expectedVersion), "notes.update.success"));
   }

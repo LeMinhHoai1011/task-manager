@@ -142,7 +142,7 @@ class F3NotificationIT extends ItgBase {
   }
 
   @Test
-  void retryableDeliveryRetries() {
+  void retryableDeliveryCannotClaimSuccessWithoutProvider() {
     var ids = pair("f3n6");
     UUID user = ids[1], project = ids[2];
     var n = processor.deliver(base(user, project, "f3n-retry-" + tag()));
@@ -154,7 +154,11 @@ class F3NotificationIT extends ItgBase {
 
     assertEquals(1, processor.retryPending());
     var rows = deliveryAttempts.findByNotificationIdOrderByAttemptNoAsc(n.getId());
-    assertTrue(rows.stream().anyMatch(a -> "SENT".equals(a.getStatus())));
+    var pushRows = rows.stream().filter(a -> "PUSH".equals(a.getChannel())).toList();
+    assertEquals(1, pushRows.size());
+    assertEquals("FAILED_PERMANENT", pushRows.get(0).getStatus());
+    assertEquals("PROVIDER_DISABLED", pushRows.get(0).getErrorCode());
+    assertEquals(0, processor.retryPending());
   }
 
   @Test

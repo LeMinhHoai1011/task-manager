@@ -17,7 +17,7 @@ vi.mock("../api/client", async (importOriginal) => {
 function renderPanel() {
   return render(
     <AuthProvider>
-      <WorkflowPanel taskId="task-1" version="3" />
+      <WorkflowPanel taskId="task-1" version="3" state="PENDING_APPROVAL" allowedActions={["approve","reject"]} />
     </AuthProvider>
   );
 }
@@ -55,10 +55,16 @@ describe("WorkflowPanel", () => {
     expect(opts.idempotencyKey).toBeTruthy();
   });
   it("offers actions for the current state and keeps the API contract", async () => {
-    render(<AuthProvider><WorkflowPanel taskId="task-1" version="8" state="TODO" /></AuthProvider>);
+    render(<AuthProvider><WorkflowPanel taskId="task-1" version="8" state="TODO" allowedActions={["start","submit"]} /></AuthProvider>);
     expect(screen.queryByRole("button", {name:"Phê duyệt"})).not.toBeInTheDocument();
     expect(screen.queryByRole("button", {name:"Mở lại"})).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", {name:"Bắt đầu"}));
     await waitFor(()=>expect(mockApiFetch).toHaveBeenCalledWith("/tasks/task-1/workflow/start",expect.objectContaining({method:"POST",ifMatch:"8",idempotencyKey:"test-idem"})));
   });
+});
+
+it("hides every workflow mutation when capabilities are absent",()=>{
+  render(<AuthProvider><WorkflowPanel taskId="task-1" version="1" state="TODO" role="MANAGER" /></AuthProvider>);
+  expect(screen.queryByRole("button",{name:"Bắt đầu"})).not.toBeInTheDocument();
+  expect(screen.queryByRole("button",{name:"Hủy công việc"})).not.toBeInTheDocument();
 });

@@ -127,7 +127,13 @@ public class FileService {
     requireNotPendingApproval(t, "file.upload.init", actor);
     if (idempotencyKey != null) {
       var existing = sessions.findByIdempotencyKey(idempotencyKey);
-      if (existing.isPresent()) return existing.get();
+      if (existing.isPresent()) {
+        var previous = existing.get();
+        if (!actor.equals(previous.getOwnerUserId()) || !taskId.equals(previous.getTaskId())) {
+          throw AppException.notFound("Upload session not found");
+        }
+        return previous;
+      }
     }
     var check = FilePolicy.checkUpload(mimeType, declaredSize, allowedTypes(), maxBytes(), t.getState());
     accessEvents.save(new FileAccessEvent(UuidV7.generate(), null, actor, "UPLOAD",
@@ -161,7 +167,8 @@ public class FileService {
    */
   @Transactional
   public UploadSession stageBytes(UUID actor, UUID sessionId, byte[] bytes) {
-    UploadSession s = sessions.findById(sessionId)
+    UploadSession s = sessions.findByIdForUpdate(sessionId)
+        .filter(upload -> actor.equals(upload.getOwnerUserId()))
         .orElseThrow(() -> AppException.notFound("Upload session not found"));
     if (s.getExpiresAt().isBefore(OffsetDateTime.now(ZoneOffset.UTC))) {
       s.setStatus("EXPIRED");
@@ -195,7 +202,8 @@ public class FileService {
   /** Staging bytes received -> scan. No engine in V1: scan_status=UNSUPPORTED (NOT protected). */
   @Transactional
   public UploadSession stageComplete(UUID actor, UUID sessionId, long actualBytes, String checksum) {
-    UploadSession s = sessions.findById(sessionId)
+    UploadSession s = sessions.findByIdForUpdate(sessionId)
+        .filter(upload -> actor.equals(upload.getOwnerUserId()))
         .orElseThrow(() -> AppException.notFound("Upload session not found"));
     if (s.getExpiresAt().isBefore(OffsetDateTime.now(ZoneOffset.UTC))) {
       s.setStatus("EXPIRED");
@@ -231,8 +239,12 @@ public class FileService {
   /** Commit staging -> new monotonic version (never overwrite). */
   @Transactional
   public Attachment commit(UUID actor, UUID sessionId, UUID attachmentIdOrNull, String changeNote) {
-    UploadSession s = sessions.findById(sessionId)
+    UploadSession s = sessions.findByIdForUpdate(sessionId)
+        .filter(upload -> actor.equals(upload.getOwnerUserId()))
         .orElseThrow(() -> AppException.notFound("Upload session not found"));
+    if (s.getExpiresAt().isBefore(OffsetDateTime.now(ZoneOffset.UTC))) {
+      throw AppException.stateConflict("UPLOAD_SESSION_EXPIRED", "Upload session expired");
+    }
     if (!"READY".equals(s.getStatus()) && !"SCAN_PENDING".equals(s.getStatus())) {
       throw AppException.stateConflict("UPLOAD_SESSION_STATE_INVALID", "Session not ready");
     }
@@ -246,9 +258,12 @@ public class FileService {
       att = attachments.save(new Attachment(UuidV7.generate(), s.getTaskId(), s.getFileName(),
           s.getMimeType(), s.getDeclaredSize(), actor));
     } else {
-      att = attachments.findById(attachmentIdOrNull)
+      att = attachments.findByIdForUpdate(attachmentIdOrNull)
           .orElseThrow(() -> AppException.notFound("Attachment not found"));
       if (att.getDeletedAt() != null) throw AppException.notFound("Attachment not found");
+      if (!s.getTaskId().equals(att.getTaskId())) {
+        throw AppException.notFound("Attachment not found");
+      }
     }
     List<Integer> existing = versions.findByAttachmentIdOrderByVersionNoAsc(att.getId())
         .stream().map(FileVersion::getVersionNo).toList();
@@ -273,18 +288,7 @@ public class FileService {
     } catch (Exception e) {
       throw mapStagingError(e);
     }
-    // Best-effort staging delete; leftovers stay private under staging/ and
-    // are swept by cleanupExpiredSessions().
-    try {
-      if ("local".equalsIgnoreCase(storageMode)) {
-        java.nio.file.Files.deleteIfExists(localPath(s.getStagingKey()));
-      } else {
-      minio.removeObject(RemoveObjectArgs.builder().bucket(bucket)
-          .object(s.getStagingKey()).build());
-      }
-    } catch (Exception ignored) {
-      // swept later by cleanupExpiredSessions()
-    }
+    deleteStagingAfterCommit(s.getStagingKey());
     FileObject obj = new FileObject(UuidV7.generate(), objectKey, bucket, s.getDeclaredSize());
     obj.setContentType(s.getMimeType());
     obj.setChecksumSha256(sha);
@@ -309,10 +313,30 @@ public class FileService {
     return att;
   }
 
+  private void deleteStagingAfterCommit(String stagingKey) {
+    // Keep retryable bytes if any later DB/audit/outbox write rolls back.
+    // Direct callers without a transaction also retain staging conservatively.
+    if (!org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) return;
+    org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+        new org.springframework.transaction.support.TransactionSynchronization() {
+          @Override public void afterCommit() {
+            try {
+              if ("local".equalsIgnoreCase(storageMode)) {
+                java.nio.file.Files.deleteIfExists(localPath(stagingKey));
+              } else {
+                minio.removeObject(RemoveObjectArgs.builder().bucket(bucket).object(stagingKey).build());
+              }
+            } catch (Exception ignored) {
+              // A private orphan is safer than removing bytes before DB commit.
+            }
+          }
+        });
+  }
+
   /** Restore an older version as a NEW version (never overwrite current). */
   @Transactional
   public Attachment restoreAsNewVersion(UUID actor, UUID attachmentId, int sourceVersionNo, String changeNote) {
-    Attachment att = attachments.findById(attachmentId)
+    Attachment att = attachments.findByIdForUpdate(attachmentId)
         .orElseThrow(() -> AppException.notFound("Attachment not found"));
     if (att.getDeletedAt() != null) throw AppException.notFound("Attachment not found");
     var t = requireTask(att.getTaskId());
@@ -336,7 +360,7 @@ public class FileService {
 
   @Transactional
   public Attachment softDelete(UUID actor, UUID attachmentId) {
-    Attachment att = attachments.findById(attachmentId)
+    Attachment att = attachments.findByIdForUpdate(attachmentId)
         .orElseThrow(() -> AppException.notFound("Attachment not found"));
     var t = requireTask(att.getTaskId());
     requireNotPendingApproval(t, "file.delete", actor);
@@ -353,7 +377,7 @@ public class FileService {
 
   @Transactional
   public Attachment restore(UUID actor, UUID attachmentId) {
-    Attachment att = attachments.findById(attachmentId)
+    Attachment att = attachments.findByIdForUpdate(attachmentId)
         .orElseThrow(() -> AppException.notFound("Attachment not found"));
     if (att.getDeletedAt() == null) return att;
     att.setDeletedAt(null);

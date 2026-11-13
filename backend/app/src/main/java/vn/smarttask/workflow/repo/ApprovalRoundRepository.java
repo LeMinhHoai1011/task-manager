@@ -26,4 +26,7 @@ public interface ApprovalRoundRepository extends JpaRepository<ApprovalRound, UU
   @Query("select r.status from ApprovalRound r where r.taskId in "
       + "(select t.id from vn.smarttask.task.entity.Task t where t.projectId = :p)")
   List<String> findStatusesByProjectId(@Param("p") UUID projectId);
+
+  @Query("select r.status from ApprovalRound r where r.taskId in :ids")
+  List<String> findStatusesByTaskIds(@Param("ids") List<UUID> taskIds);
 }

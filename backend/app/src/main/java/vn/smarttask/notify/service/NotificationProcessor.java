@@ -133,7 +133,8 @@ public class NotificationProcessor {
     if (pushable && !scopeLost && defer == null) {
       gateway.send(PushEmailGateway.Channel.PUSH, "user:" + d.userId(), d.titleKey(),
           d.correlationId() == null ? null : d.correlationId().toString());
-      recordAttempt(n.getId(), "PUSH", "SENT", "STUB", d.correlationId());
+      recordAttempt(n.getId(), "PUSH", "FAILED_PERMANENT", "STUB", d.correlationId(),
+          "PROVIDER_DISABLED", "No push provider is implemented");
     } else {
       recordAttempt(n.getId(), "PUSH", "FAILED_PERMANENT", "STUB",
           d.correlationId(), "SESSION_REVOKED", "no live session: push skipped");
@@ -160,14 +161,11 @@ public class NotificationProcessor {
         attempts.save(a);
         continue;
       }
-      DeliveryAttempt next = new DeliveryAttempt(UuidV7.generate(), a.getNotificationId(),
-          a.getChannel(), a.getDedupToken() + "#r" + (a.getAttemptNo() + 1));
-      next.setAttemptNo(a.getAttemptNo() + 1);
-      next.setProvider(a.getProvider());
-      next.setStatus("SENT");
-      next.setCorrelationId(a.getCorrelationId());
-      attempts.save(next);
-      a.setStatus("SENT");
+      // Historical retryable rows cannot be delivered by a missing provider.
+      // Terminal failure also prevents reprocessing them on every scheduler tick.
+      a.setStatus("FAILED_PERMANENT");
+      a.setErrorCode("PROVIDER_DISABLED");
+      a.setErrorDetail("No external delivery provider is implemented");
       attempts.save(a);
       n++;
     }

@@ -6,8 +6,15 @@
 # Only Caddy publishes ports. Postgres and MinIO stay on the internal network.
 name: smarttask
 
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   db:
+    logging: *default-logging
     image: postgres:16
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-smarttask}
@@ -30,6 +37,7 @@ services:
   # MinIO community images are not on Docker Hub under the old names anymore.
   # The Bitnami legacy image bundles both the server and the `mc` client.
   minio:
+    logging: *default-logging
     image: ${MINIO_IMAGE:-bitnamilegacy/minio:2025.7.23-debian-12-r5}
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER in .env}
@@ -45,6 +53,8 @@ services:
   # One-shot: wait for MinIO, create the private bucket, create a dedicated
   # application user (not root), and grant the readwrite policy.
   minio-init:
+    logging: *default-logging
+    mem_limit: 128m
     image: ${MINIO_IMAGE:-bitnamilegacy/minio:2025.7.23-debian-12-r5}
     depends_on:
       - minio
@@ -62,6 +72,7 @@ services:
     networks: [internal]
 
   backend:
+    logging: *default-logging
     build:
       context: ../backend
       dockerfile: Dockerfile
@@ -80,7 +91,7 @@ services:
       FILE_GATEWAY_MINIO_BUCKET: ${MINIO_BUCKET:-smarttask}
       SMARTTASK_SELF_REGISTRATION: ${SELF_REGISTRATION:-true}
       SMARTTASK_WORKERS_ENABLED: "true"
-      SMARTTASK_BOOTSTRAP_ADMINUSERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-}
+      SMARTTASK_BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-}
       SMARTTASK_CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
       SMARTTASK_OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       SMARTTASK_OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1:8b}
@@ -104,6 +115,7 @@ services:
     networks: [internal]
 
   web:
+    logging: *default-logging
     build:
       context: ../web
       dockerfile: Dockerfile

@@ -61,6 +61,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
     "spring.datasource.url=${SMARTTASK_IT_DATABASE_URL:jdbc:postgresql://localhost:5433/smarttask_itg}",
     "spring.datasource.username=stm_test",
     "spring.datasource.password=stm_test_pw",
+    "spring.datasource.hikari.maximum-pool-size=4",
     "spring.jpa.hibernate.ddl-auto=validate",
     "smarttask.bootstrap.admin-username=",
     "smarttask.self-registration=true",

@@ -33,17 +33,16 @@ public class PushEmailGateway {
     this.emailConfigured = emailConfigured;
   }
 
-  /** Stub: logs intent only, never real provider payload. Returns QUEUED stub. */
+  /** No provider exists, even if a legacy caller passes configured=true. */
   public StubDelivery send(Channel channel, String recipientRef, String titleKey, String correlationId) {
-    boolean configured = channel == Channel.PUSH ? pushConfigured : emailConfigured;
-    String status = configured ? "QUEUED" : "QUEUED_STUB_NO_PROVIDER";
-    String note = configured ? "queued"
-        : "STUB: no real FCM/APNs/SMTP wired — end-to-end delivery NOT provided in V1";
+    String status = "DISABLED";
+    String note = "No FCM/APNs/SMTP provider is implemented";
     // Never log token or private content: only refs + keys.
     log.info("notify.stub channel={} recipient_ref={} title_key={} status={} correlation_id={}",
         channel, recipientRef, titleKey, status, correlationId);
     StubDelivery d = new StubDelivery(channel, recipientRef, titleKey, status, note);
     synchronized (deliveries) {
+      if (deliveries.size() >= 100) deliveries.remove(0);
       deliveries.add(d);
     }
     return d;

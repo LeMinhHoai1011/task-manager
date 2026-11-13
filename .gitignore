@@ -24,6 +24,7 @@ target/
 
 # Logs
 *.log
+%MAVEN_OUT%
 logs/
 .run/
 
@@ -33,3 +34,8 @@ backups/
 uploads/
 backend/app/var/files/
 *.tmp
+*.backup
+*.sql.gz
+
+# Browser failure captures remain local; publish only reviewed screenshots.
+docs/screenshots/**/failure.png

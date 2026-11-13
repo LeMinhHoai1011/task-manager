@@ -10,11 +10,15 @@ import NotificationBell from "./NotificationBell";
 import AppIcon from "./AppIcon";
 import OfflineBanner from "./OfflineBanner";
 import GlobalSearchModal from "./GlobalSearchModal";
+import {useAccess} from "../auth/AccessContext";
 
 export default function Layout({ children }: { children: ReactNode }) {
   const auth = useAuth();
+  const access=useAccess();
   const nav = useNavigate();
   const location = useLocation();
+  const projectContext = /^\/projects\/([^/]+)$/.exec(location.pathname)?.[1]
+    || (location.pathname==="/tasks" ? new URLSearchParams(location.search).get("project_id") || new URLSearchParams(location.search).get("project") : null);
   const { theme, toggleTheme } = useTheme();
 
   const [menuOpen, setMenuOpen] = useState(false);
@@ -51,8 +55,9 @@ export default function Layout({ children }: { children: ReactNode }) {
     return <Navigate to="/change-password" replace />;
   }
 
-  const role = auth.user?.role?.toUpperCase() || "";
-  const isAdmin = role === "ADMIN" || role === "SYSTEM_ADMIN" || role === "OWNER";
+  const isAdmin = access.systemAdmin;
+  const managesProjects=access.projects.some(p=>p.canManage);
+  const canCreateTask=projectContext?access.projects.some(p=>p.id===projectContext&&p.canCreateTask):access.projects.some(p=>p.canCreateTask);
 
   const titleByPath: Record<string, string> = {
     "/dashboard": "Tổng quan",
@@ -67,7 +72,8 @@ export default function Layout({ children }: { children: ReactNode }) {
     "/files": t("nav.files"),
     "/notifications": t("nav.notifications"),
     "/reports": t("nav.reports"),
-    "/settings": "Cài đặt",
+    "/settings": "Cài đặt cá nhân",
+    "/my-role": "Vai trò và việc cần làm",
     "/ai": t("nav.ai"),
     "/admin": t("nav.admin"),
   };
@@ -129,17 +135,17 @@ export default function Layout({ children }: { children: ReactNode }) {
         {link("/files", t("nav.files"), "files")}
 
         {/* NHÓM 2: QUẢN LÝ (Manager) */}
-        <p className="nav-group-label">Quản lý dự án</p>
+        <p className="nav-group-label">Dự án và cộng tác</p>
         {link("/projects", t("nav.projects"), "project")}
         {link("/teams", "Nhóm", "team")}
         {link("/workspaces", t("nav.workspaces"), "workspace")}
         {link("/reports", t("nav.reports"), "report")}
+        {managesProjects&&link("/roles", "Phân quyền dự án", "roles")}
 
         {/* NHÓM 3: QUẢN TRỊ (Admin) */}
         {isAdmin && (
           <>
             <p className="nav-group-label">Quản trị hệ thống</p>
-            {link("/roles", "Vai trò dự án", "roles")}
             {link("/admin", t("nav.admin"), "settings")}
           </>
         )}
@@ -148,6 +154,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         <p className="nav-group-label">Hệ thống</p>
         {link("/notifications", t("nav.notifications"), "bell")}
         {link("/settings", "Cài đặt", "settings")}
+        {link("/my-role", "Vai trò và việc cần làm", "roles")}
         {ENABLE_AI && link("/ai", t("nav.ai"), "ai")}
 
         <div className="mt-auto border-t border-slate-200 pt-3">
@@ -228,13 +235,13 @@ export default function Layout({ children }: { children: ReactNode }) {
                     <AppIcon name="tasks" size={16} />
                     <span>+ Việc cá nhân mới</span>
                   </NavLink>
-                  <NavLink
-                    to="/tasks"
+                  {canCreateTask&&<NavLink
+                    to={projectContext?`/tasks?project_id=${encodeURIComponent(projectContext)}&create=1`:"/tasks?create=1"}
                     className="flex items-center gap-2.5 px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-800"
                   >
                     <AppIcon name="tasks" size={16} />
                     <span>+ Việc dự án mới</span>
-                  </NavLink>
+                  </NavLink>}
                   <NavLink
                     to="/notes"
                     className="flex items-center gap-2.5 px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-800"
@@ -242,13 +249,13 @@ export default function Layout({ children }: { children: ReactNode }) {
                     <AppIcon name="files" size={16} />
                     <span>+ Ghi chú mới</span>
                   </NavLink>
-                  <NavLink
+                  {access.workspaces.some(w=>w.canCreateProject)&&<NavLink
                     to="/projects"
                     className="flex items-center gap-2.5 px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-800 border-t border-slate-100 dark:border-slate-800"
                   >
                     <AppIcon name="project" size={16} />
                     <span>+ Dự án mới</span>
-                  </NavLink>
+                  </NavLink>}
                 </div>
               )}
             </div>
@@ -341,6 +348,7 @@ export default function Layout({ children }: { children: ReactNode }) {
               </button>
             </div>
           )}
+          {access.error&&<div role="alert" className="card mb-4">{access.error} <button className="btn btn-secondary" onClick={access.reload}>Tải lại quyền</button></div>}
           {children}
         </div>
       </main>
