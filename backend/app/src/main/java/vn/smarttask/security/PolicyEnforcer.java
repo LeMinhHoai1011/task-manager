@@ -122,6 +122,15 @@ public class PolicyEnforcer {
         hasRead, canWrite, canWrite, stateOf(p));
   }
 
+  public void requireProjectContribution(UUID actor, UUID projectId) {
+    requireProjectRead(actor,projectId);
+    var p=projects.findById(projectId).orElseThrow(()->AppException.notFound("Project not found"));
+    boolean allowed=projectMembers.findMembership(projectId,actor)
+        .map(m->isProjectWriter(m.getRole())||"MEMBER".equals(m.getRole())).orElse(false);
+    decide(actor,projectId,"project","project.progress.update","project:write",
+        true,allowed,allowed,stateOf(p));
+  }
+
   // ---------------------------------------------------------------- task
 
   public void requireTaskRead(UUID actor, UUID taskId) {

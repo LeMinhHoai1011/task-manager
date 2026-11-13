@@ -45,6 +45,15 @@ public class TeamService {
     return team;
   }
   @Transactional(readOnly = true)
+  public java.util.Map<String,Object> capabilities(UUID actor,UUID id) {
+    var t=team(actor,id,false);
+    var m=memberships.findMembership(t.workspaceId(),actor).orElseThrow(()->AppException.notFound("Team not found"));
+    boolean workspaceManager=java.util.Set.of("OWNER","ADMIN").contains(m.getRole());
+    boolean teamManager=Boolean.TRUE.equals(jdbc.queryForObject("select exists(select 1 from team_member where team_id=? and user_id=? and role='MANAGER' and status='ACTIVE')",Boolean.class,id,actor));
+    boolean active="ACTIVE".equals(jdbc.queryForObject("select status from workspace where id=?",String.class,t.workspaceId()));
+    return java.util.Map.of("canManage",active&&(workspaceManager||("MEMBER".equals(m.getRole())&&teamManager)));
+  }
+  @Transactional(readOnly = true)
   public java.util.List<Member> candidates(UUID actor,UUID workspace,int page,int size) {
     policy.requireWorkspaceRead(actor,workspace);
     int limit=Math.max(1,Math.min(size,100));

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type {TaskAccess} from "../auth/AccessContext";
 import { useSearchParams } from "react-router-dom";
 import { API_BASE, apiFetch, mutationOpts, newIdempotencyKey, unwrapData, unwrapList, unwrapPage } from "../api/client";
 import { t } from "../i18n";
@@ -16,6 +17,7 @@ interface Attachment {
 interface TaskOption { id: string; title: string; }
 
 export default function Files({ taskId: taskIdProp }: { taskId?: string }) {
+  const [access,setAccess]=useState<TaskAccess|null>(null);
   const [params, setParams] = useSearchParams();
   const taskId = taskIdProp ?? params.get("taskId") ?? "";
   const [err, setErr] = useState<string | null>(null);
@@ -54,8 +56,10 @@ export default function Files({ taskId: taskIdProp }: { taskId?: string }) {
   }
 
   useEffect(() => {
+    let active=true;setAccess(null);
+    if(taskId)void apiFetch(`/tasks/${taskId}/access`).then(r=>{if(active)setAccess(unwrapData<TaskAccess>(r)??null);}).catch(()=>{});
     void loadAttachments(taskId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return()=>{active=false;};
   }, [taskId]);
 
   useEffect(() => {
@@ -65,6 +69,7 @@ export default function Files({ taskId: taskIdProp }: { taskId?: string }) {
   }, []);
 
   async function upload(f: File) {
+    if(!access?.files)return;
     setErr(null);
     setNotice(null);
     if (!taskId) {
@@ -145,6 +150,7 @@ export default function Files({ taskId: taskIdProp }: { taskId?: string }) {
   }
 
   async function restoreVersion(id: string) {
+    if(!access?.files)return;
     setErr(null);
     if (!id.trim() || !restoreSrc.trim() || !Number.isInteger(Number(restoreSrc))) {
       setErr(t("form.invalid_number"));
@@ -187,9 +193,10 @@ export default function Files({ taskId: taskIdProp }: { taskId?: string }) {
         </Button>
       </div>
       {!taskId && <p role="note" className="mt-2 text-sm text-slate-500">{t("files.task_required")}</p>}
+      {taskId&&!access?.files&&<p role="note" className="card mt-3">Bạn chỉ xem/tải tệp trong phạm vi công việc được cấp quyền. Quản lý dự án được tải lên và khôi phục phiên bản khi công việc cho phép.</p>}
       <ErrorAlert message={err} />
       {notice && <p role="status" className="mt-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">{notice}</p>}
-      <div
+      {access?.files&&<div
         className={`dropzone mt-3 ${dragOver ? "dropzone-active" : ""}`}
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
@@ -214,7 +221,7 @@ export default function Files({ taskId: taskIdProp }: { taskId?: string }) {
           }}
         />
         <Button variant="secondary" size="sm">Chọn tệp</Button>
-      </div>
+      </div>}
       {progress !== null && (
         <div className="mt-2">
           <div className="progress-track"><div className="progress-fill" style={{ width: `${progress}%` }} /></div>
@@ -251,13 +258,13 @@ export default function Files({ taskId: taskIdProp }: { taskId?: string }) {
         )}
       </Card>
       <Card className="mt-4">
-        <div className="flex flex-wrap items-center gap-2">
+        {access?.files&&<div className="flex flex-wrap items-center gap-2">
           <TextInput className="!w-56" placeholder="attachment id" aria-label="attachment id" value={attId} onChange={(e) => setAttId(e.target.value)} />
           <TextInput className="!w-36" placeholder="source version" aria-label="source version" value={restoreSrc} onChange={(e) => setRestoreSrc(e.target.value)} />
           <Button variant="secondary" size="sm" onClick={() => { if (attId) void restoreVersion(attId); }}>
             Restore as new version
           </Button>
-        </div>
+        </div>}
         <p className="mt-2 text-xs text-slate-500">
           Preview/download mở ticket 1 lần duy nhất (TTL 30s) qua gateway, không dùng URL
           object-storage trực tiếp. {t("files.restore_note")}

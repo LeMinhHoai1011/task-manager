@@ -57,7 +57,6 @@ export function useRealtimeEvent(scopes: string[], cb: (ev: RealtimeEvent) => vo
     if (wanted.some((s) => (s && (scope.startsWith(s) || kind.startsWith(s))) || (!scope && !kind))) {
       ref.current(lastEvent);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastEvent]);
 }
 

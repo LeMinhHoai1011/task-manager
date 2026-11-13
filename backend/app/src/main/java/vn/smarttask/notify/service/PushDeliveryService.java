@@ -18,13 +18,8 @@ import vn.smarttask.notify.repo.DevicePushRegistrationRepository;
  * Provider stub for Web Push delivery (DEC-46 open).
  *
  * <p>Actual push delivery requires a web-push library (e.g. com.github.waveyard:webpush)
- * which is not yet integrated. This stub records delivery attempts and
- * updates last_success_at / failure_count on each registration.
- *
- * <p>The scheduled task scans active WEB_PUSH subscriptions and would invoke
- * the web-push library here once integrated. For now it marks attempts as
- * "stubbed" so operators can see which subscriptions are active and attempt
- * delivery.
+ * which is not yet integrated. Delivery is DISABLED: the scheduler never
+ * sends or records success. Registration/session revocation remains active.
  */
 @Service
 public class PushDeliveryService {
@@ -80,16 +75,11 @@ public class PushDeliveryService {
     }
   }
 
-  /** Scheduled: scan active WEB_PUSH subscriptions and attempt delivery stub.
-   *  Runs every 60 seconds when there are active subscriptions.
-   */
+  /** Disabled provider hook; no delivery or success bookkeeping is performed. */
   @Scheduled(fixedDelayString = "${smarttask.push.scan.delay:60000}")
   @Transactional
   public void scanAndDeliver() {
-    List<DevicePushRegistration> subs = activeWebPushSubscriptions();
-    for (DevicePushRegistration d : subs) {
-      // Stub: mark as attempted (no real network call).
-      recordAttempt(d.getId(), true);
-    }
+    // DISABLED: there is no provider. Do not query every subscription, create
+    // audit noise, or update last_success_at without a provider acknowledgement.
   }
 }

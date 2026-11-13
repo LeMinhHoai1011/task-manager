@@ -1,0 +1,83 @@
+name: Production validation
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
+      - run: pnpm build
+      - run: pnpm audit --audit-level moderate
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16.6
+        env:
+          POSTGRES_USER: stm_test
+          POSTGRES_PASSWORD: stm_test_pw
+          POSTGRES_DB: smarttask_itg
+        ports: ["5433:5432"]
+        options: --health-cmd "pg_isready -U stm_test" --health-interval 5s --health-retries 20
+      minio:
+        image: bitnamilegacy/minio:2025.7.23-debian-12-r5
+        env:
+          MINIO_ROOT_USER: testaccess
+          MINIO_ROOT_PASSWORD: testsecret135
+          MINIO_BROWSER: "off"
+        ports: ["9090:9000"]
+    env:
+      PGPASSWORD: stm_test_pw
+      SMARTTASK_IT_MINIO_ENDPOINT: http://127.0.0.1:9090
+      SMARTTASK_IT_MINIO_ACCESS_KEY: testaccess
+      SMARTTASK_IT_MINIO_SECRET_KEY: testsecret135
+      SMARTTASK_IT_MINIO_BUCKET: smarttask-test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+      - run: createdb -h 127.0.0.1 -p 5433 -U stm_test smarttask_f21
+      - run: curl --fail --retry 30 --retry-delay 2 --retry-connrefused http://127.0.0.1:9090/minio/health/live
+      - working-directory: backend
+        run: sh mvnw -B -pl app -Dspring.datasource.hikari.maximum-pool-size=4 -Dspring.test.context.cache.maxSize=4 '-Dtest=*Test,*IT' package
+      - working-directory: backend
+        run: sh mvnw -B -pl app dependency:tree -DoutputType=tgf -DoutputFile=target/dependencies.tgf
+      - shell: pwsh
+        run: ./scripts/audit-maven-advisories.ps1 -Graph backend/app/target/dependencies.tgf -OutputFile backend/app/target/advisories.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-evidence
+          path: |
+            backend/app/target/surefire-reports
+            backend/app/target/advisories.json
+  images-and-secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: docker run --rm -v "$PWD:/repo:ro" -w /repo zricethezav/gitleaks:v8.24.3 git /repo --redact --exit-code 1
+      - run: docker build -t smarttask-backend:validation backend
+      - run: docker build -t smarttask-web:validation web

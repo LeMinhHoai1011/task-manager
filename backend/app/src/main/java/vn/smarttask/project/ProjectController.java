@@ -100,7 +100,7 @@ public class ProjectController {
       @RequestBody Map<String, Object> body) {
     UUID actor = CurrentActor.userId();
     UUID wsId = UUID.fromString(String.valueOf(body.get("workspace_id")));
-    policy.requireWorkspaceWrite(actor, wsId);
+    policy.requireWorkspaceManagement(actor, wsId);
     var p = projects.create(actor, wsId,
         String.valueOf(body.getOrDefault("name", "p")),
         body.get("description") == null ? null : String.valueOf(body.get("description")));

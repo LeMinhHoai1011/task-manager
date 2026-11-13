@@ -29,9 +29,9 @@ import vn.smarttask.reports.service.ReportService;
 @TestPropertySource(properties = {
     "smarttask.workers.enabled=false",
     "file.gateway.mode=s3",
-    "file.gateway.minio-endpoint=http://localhost:9090",
-    "file.gateway.minio-access-key=test",
-    "file.gateway.minio-secret-key=test",
+    "file.gateway.minio-endpoint=${SMARTTASK_IT_MINIO_ENDPOINT:http://localhost:9090}",
+    "file.gateway.minio-access-key=${SMARTTASK_IT_MINIO_ACCESS_KEY:test}",
+    "file.gateway.minio-secret-key=${SMARTTASK_IT_MINIO_SECRET_KEY:test}",
     "file.gateway.minio-bucket=smarttask-test"})
 class F3ExportIT extends ItgBase {
 

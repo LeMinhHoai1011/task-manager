@@ -1,14 +1,26 @@
-// Reserved for a future ESLint TypeScript parser configuration. The current
-// lint command intentionally uses `tsc --noEmit`, which is the authoritative
-// static check already required by the production build. Keeping this file
-// avoids silently applying ESLint's JavaScript parser to TS/TSX sources.
-export default [
-  { ignores: ["dist", "node_modules"] },
+import tseslint from "typescript-eslint";
+import reactHooks from "eslint-plugin-react-hooks";
+
+// Runtime hazard checks; TypeScript checking is a separate command.
+export default tseslint.config(
+  { ignores: ["dist/**", "node_modules/**"] },
   {
-    files: ["**/*.{ts,tsx,js}"],
+    files: ["src/**/*.{ts,tsx}"],
+    languageOptions: { parser: tseslint.parser },
+    plugins: { "react-hooks": reactHooks },
     rules: {
-      "no-unused-vars": "warn",
-      "no-undef": "off",
+      "constructor-super": "error",
+      "no-cond-assign": ["error", "always"],
+      "no-constant-condition": ["error", { checkLoops: false }],
+      "no-debugger": "error",
+      "no-dupe-args": "error",
+      "no-dupe-keys": "error",
+      "no-duplicate-case": "error",
+      "no-eval": "error",
+      "no-unexpected-multiline": "error",
+      "no-unreachable": "error",
+      "no-unsafe-finally": "error",
+      "valid-typeof": "error",
     },
   },
-];
+);

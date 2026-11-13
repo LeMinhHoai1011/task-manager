@@ -19,7 +19,7 @@ const ACTION_VARIANT: Record<(typeof ACTIONS)[number], "primary" | "indigo" | "s
   reopen: "purple",
 };
 
-export default function WorkflowPanel({ taskId, version, role, state, onDone,disabled=false }: { taskId: string; version: string; role?: string;state?:string; onDone?: () => void;disabled?:boolean }) {
+export default function WorkflowPanel({ taskId, version, state, onDone,disabled=false,allowedActions=[] }: { taskId: string; version: string; role?: string;state?:string;allowedActions?:string[]; onDone?: () => void;disabled?:boolean }) {
   const auth = useAuth();
   const [reason, setReason] = useState("");
   const [err, setErr] = useState<string | null>(null);
@@ -28,15 +28,12 @@ export default function WorkflowPanel({ taskId, version, role, state, onDone,dis
   const [busy,setBusy]=useState(false);
 
   const canShow = (a: (typeof ACTIONS)[number]): boolean => {
-    if (state && ACTION_STATES[state] && !ACTION_STATES[state].includes(a)) return false;
-    if (!role) return true;
-    if (a === "approve" && !(role === "admin" || role === "reviewer" || role === "manager")) return false;
-    if (a === "reject" && !(role === "admin" || role === "reviewer" || role === "manager")) return false;
-    return true;
+    if(!allowedActions.includes(a))return false;
+    return !!state && (ACTION_STATES[state]??[]).includes(a);
   };
 
   async function run(action: (typeof ACTIONS)[number]) {
-    if(busy||disabled)return;
+    if(busy||disabled||!canShow(action))return;
     setErr(null);
     setOk(null);
     if ((action === "reject" || action === "reopen") && reason.trim().length < 3) {
@@ -68,9 +65,10 @@ export default function WorkflowPanel({ taskId, version, role, state, onDone,dis
   return (
     <Card>
       <h2 className="section-title">Tiến trình công việc</h2>
-      <div className="mt-2">
+      {ACTIONS.some(a=>canShow(a)&&["reject","reopen"].includes(a))&&<div className="mt-2">
         <TextInput aria-label="Lý do thay đổi trạng thái" placeholder="Lý do yêu cầu sửa hoặc mở lại (ít nhất 3 ký tự)" value={reason} onChange={(e) => setReason(e.target.value)} />
-      </div>
+      </div>}
+      {!ACTIONS.some(canShow)&&<p>Không có thao tác chuyển trạng thái cho vai trò hoặc trạng thái hiện tại.</p>}
       <div className="row">
         {ACTIONS.filter(canShow).map((a) => (
           <Button key={a} disabled={busy||disabled} size="sm" variant={ACTION_VARIANT[a]} onClick={() => void run(a)}>

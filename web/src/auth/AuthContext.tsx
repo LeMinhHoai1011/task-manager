@@ -17,6 +17,23 @@ export interface SessionUser {
   mustChangePassword: boolean;
 }
 
+const USER_CACHE_KEY = "tm.session_user";
+// Restore display information after refresh. Backend still checks every permission.
+function cachedUser(): SessionUser | null {
+  if (!getToken()) return null;
+  try {
+    const value = JSON.parse(localStorage.getItem(USER_CACHE_KEY) ?? "null");
+    return value && typeof value.id === "string" && typeof value.email === "string"
+      && typeof value.role === "string" && typeof value.mustChangePassword === "boolean" ? value : null;
+  } catch { return null; }
+}
+function cacheUser(user: SessionUser | null) {
+  try {
+    if (user) localStorage.setItem(USER_CACHE_KEY, JSON.stringify(user));
+    else localStorage.removeItem(USER_CACHE_KEY);
+  } catch { /* Private-storage restrictions must not break login/logout. */ }
+}
+
 interface PendingReauth {
   /** Retry đúng request cũ, giữ nguyên Idempotency-Key. */
   retry: () => Promise<unknown>;
@@ -44,7 +61,7 @@ interface AuthState {
 const AuthContext = createContext<AuthState | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<SessionUser | null>(null);
+  const [user, setUser] = useState<SessionUser | null>(cachedUser);
   const [token, setTok] = useState<string | null>(() => getToken());
   const [sessionNotice, setSessionNotice] = useState<string | null>(null);
   const [reauth, setReauth] = useState<PendingReauth | null>(null);
@@ -56,10 +73,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const onTokens = (e: Event) => {
       const detail = (e as CustomEvent<{ accessToken?: string | null }>).detail;
       setTok(detail?.accessToken ?? null);
+      if (!detail?.accessToken) { cacheUser(null); setUser(null); }
     };
     const onExpired = () => {
       setTok(null);
       setUser(null);
+      cacheUser(null);
       setSessionNotice("auth.session_expired");
     };
     window.addEventListener(TOKENS_EVENT, onTokens);
@@ -94,7 +113,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Lưu cả refresh token: access token hết hạn sau 1 ngày, refresh 7 ngày.
     setTokens(accessToken, refreshToken);
     setTok(accessToken);
-    setUser({ id: data?.user_id ?? "", email, role, mustChangePassword });
+    const signedInUser = { id: data?.user_id ?? "", email, role, mustChangePassword };
+    cacheUser(signedInUser);
+    setUser(signedInUser);
     if (res.session_replaced) {
       setSessionNotice("auth.session_replaced");
     }

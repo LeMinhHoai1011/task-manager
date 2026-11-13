@@ -46,7 +46,7 @@ public class VapidController {
         .anyMatch(d -> "WEB_PUSH".equalsIgnoreCase(d.getPlatform())
             && "ACTIVE".equalsIgnoreCase(d.getStatus())
             && d.getEndpoint() != null);
-    return ResponseEntity.ok(Map.of("subscribed", hasSubscription));
+    return ResponseEntity.ok(Map.of("subscribed", hasSubscription, "delivery_status", "DISABLED"));
   }
 
   /** EP-181: list active WEB_PUSH subscriptions for the current user. */
@@ -84,11 +84,7 @@ public class VapidController {
     DevicePushRegistration d = devices.findById(UUID.fromString(subscriptionId))
         .filter(r -> r.getUserId().equals(userId))
         .orElseThrow(() -> vn.smarttask.common.AppException.notFound("Subscription not found"));
-    // Provider stub: mark attempted, no actual network delivery.
-    d.setLastSuccessAt(java.time.OffsetDateTime.now(java.time.ZoneOffset.UTC));
-    devices.save(d);
-    return ResponseEntity.ok(Map.of("status", "stubbed",
-        "subscription_id", subscriptionId,
-        "title", title, "body", bodyText));
+    throw vn.smarttask.common.AppException.storageUnavailable("PUSH_PROVIDER_DISABLED",
+        "Web Push delivery is disabled: no provider is implemented");
   }
 }

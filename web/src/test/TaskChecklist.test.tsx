@@ -11,6 +11,7 @@ test("checklist restores the original value on denial and blocks workflow while 
   let rejectTick!:(error:unknown)=>void;
   request.mockImplementation((path:string,options:any)=>{
     if(options?.method==="PATCH")return new Promise((_resolve,reject)=>{rejectTick=reject;});
+    if(path.endsWith("/access"))return Promise.resolve({data:{role:"MANAGER",metadata:true,assignment:true,structure:true,subtask:true,execute:true,comment:true,review:true}});
     if(path==="/tasks/task1")return Promise.resolve({data:{id:"task1",title:"Checklist task",state:"TODO",version:1}});
     if(path.endsWith("/checklist"))return Promise.resolve({data:[{id:"item1",title:"Acceptance item",done:false}]});
     return Promise.resolve({data:[]});

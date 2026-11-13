@@ -108,9 +108,9 @@ public class ProjectService {
     if (!"ACTIVE".equals(w.getStatus())) throw AppException.stateConflict("WS_ARCHIVED", "Workspace not active");
     var ws = wsMembers.findMembership(workspaceId, creatorId)
         .orElseThrow(() -> AppException.notFound("Workspace not found"));
-    if ("GUEST".equals(ws.getRole())) {
+    if (!java.util.Set.of("OWNER","ADMIN").contains(ws.getRole())) {
       audit.appendDenied(creatorId, "project.create", "project", null, "GUEST_DENIED");
-      throw AppException.forbidden("Workspace guest cannot create project");
+      throw AppException.forbidden("Workspace Owner or Admin required to create project");
     }
     Project p = new Project(UuidV7.generate(), workspaceId, name, creatorId);
     p.setDescription(description);

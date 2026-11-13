@@ -149,7 +149,7 @@ class F4EndpointsIT extends ItgBase {
 
     // EP-177 validation
     MvcResult badPlatform = doPost("/api/v1/notifications/devices", token, Map.of(
-        "platform", "WEB_PUSH", "push_token", "x"));
+        "platform", "UNSUPPORTED_PLATFORM", "push_token", "x"));
     assertEquals(400, badPlatform.getResponse().getStatus());
     assertEquals("PUSH_PLATFORM_UNSUPPORTED", reasonCode(badPlatform));
     MvcResult blankToken = doPost("/api/v1/notifications/devices", token, Map.of(

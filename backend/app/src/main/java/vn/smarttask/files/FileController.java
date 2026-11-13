@@ -105,9 +105,13 @@ public class FileController {
 
   /** Resolve an attachment to its task and enforce task write. */
   private void requireAttachmentWrite(UUID attachmentId, UUID actor, String action) {
+    requireAttachmentWrite(attachmentId, actor, action, false);
+  }
+
+  private void requireAttachmentWrite(UUID attachmentId, UUID actor, String action, boolean restoring) {
     var att = attachments.findById(attachmentId)
         .orElseThrow(() -> AppException.notFound("Attachment not found"));
-    if (att.getDeletedAt() != null) throw AppException.notFound("Attachment not found");
+    if (!restoring && att.getDeletedAt() != null) throw AppException.notFound("Attachment not found");
     policy.requireTaskWrite(actor, att.getTaskId(), action, "file:write");
   }
 
@@ -209,7 +213,7 @@ public class FileController {
       @RequestHeader(value = "Idempotency-Key", required = false) String idem) {
     requireIdem(idem);
     UUID actor = CurrentActor.userId();
-    requireAttachmentWrite(id, actor, "file.restore");
+    requireAttachmentWrite(id, actor, "file.restore", true);
     files.restore(actor, id);
     return ResponseEntity.ok(ApiResult.ok(null, "file.restore.success"));
   }

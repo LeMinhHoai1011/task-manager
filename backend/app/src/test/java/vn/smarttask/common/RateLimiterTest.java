@@ -59,4 +59,32 @@ class RateLimiterTest {
     assertEquals(RateLimiter.Bucket.REPORT, RateLimitFilter.bucketFor("/api/v1/reports/dashboard"));
     assertEquals(RateLimiter.Bucket.DEFAULT, RateLimitFilter.bucketFor("/api/v1/tasks"));
   }
+
+  @Test
+  void concurrentAuthenticationCannotExceedTheLimit() throws Exception {
+    var limiter = new RateLimiter();
+    var start = new java.util.concurrent.CountDownLatch(1);
+    try (var executor = java.util.concurrent.Executors.newFixedThreadPool(32)) {
+      var calls = new java.util.ArrayList<java.util.concurrent.Future<Boolean>>();
+      for (int i = 0; i < 100; i++) calls.add(executor.submit(() -> {
+        start.await();
+        return limiter.check(RateLimiter.Bucket.AUTH, "same-client").allowed();
+      }));
+      start.countDown();
+      int allowed = 0;
+      for (var call : calls) if (call.get(10, java.util.concurrent.TimeUnit.SECONDS)) allowed++;
+      assertEquals(RateLimiter.limitFor(RateLimiter.Bucket.AUTH).maxRequests(), allowed);
+    }
+  }
+
+  @Test
+  void distinctClientFloodIsBoundedAndExpiredKeysAreReclaimed() {
+    var now = new AtomicReference<>(Instant.parse("2026-01-01T00:00:00Z"));
+    var limiter = fixedLimiter(now);
+    for (int i = 0; i < 10_000; i++) assertTrue(limiter.check(RateLimiter.Bucket.AUTH, "client-" + i).allowed());
+    assertFalse(limiter.check(RateLimiter.Bucket.AUTH, "overflow").allowed());
+    now.set(now.get().plusSeconds(61));
+    for (int i = 0; i < 256; i++) limiter.check(RateLimiter.Bucket.AUTH, "expired-client");
+    assertTrue(limiter.check(RateLimiter.Bucket.AUTH, "new-client").allowed());
+  }
 }

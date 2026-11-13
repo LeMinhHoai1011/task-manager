@@ -3,15 +3,18 @@ import { Link } from "react-router-dom";
 import { apiFetch, mutationOpts, newIdempotencyKey, unwrapPage } from "../api/client";
 import { t } from "../i18n";
 import { useRealtimeEvent } from "../realtime/RealtimeContext";
+import {useAccess,roleLabel} from "../auth/AccessContext";
 import WorkspaceInvitations from "../components/WorkspaceInvitations";
 import { Button, Card, EmptyState, ErrorAlert, Spinner, TextInput } from "../components/ui";
 
 interface Workspace {
   id: string;
   name: string;
+  type: string;
 }
 
 export default function Workspaces() {
+  const access=useAccess();
   const [items, setItems] = useState<Workspace[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -77,7 +80,7 @@ export default function Workspaces() {
           {t("workspaces.new")}
         </Button>
       </div>
-      <WorkspaceInvitations workspaces={items} onAccepted={()=>void load(null)}/>
+      <WorkspaceInvitations workspaces={items.filter(w=>w.type==="TEAM"&&access.workspaces.some(a=>a.id===w.id&&a.canManage))} onAccepted={()=>{access.reload();void load(null);}}/>
       <div className="mt-3 flex gap-2 rounded-xl border border-slate-200 bg-white p-3">
         <TextInput className="max-w-sm" aria-label="Tìm kiếm không gian làm việc" placeholder="Tìm kiếm không gian làm việc…" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
@@ -90,7 +93,7 @@ export default function Workspaces() {
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((w) => (
             <Card key={w.id} className="card-hover">
-              <div className="flex items-start justify-between gap-2"><p className="font-semibold text-slate-900">{w.name}</p><span className="badge-state badge-todo">Không gian</span></div>
+              <div className="flex items-start justify-between gap-2"><p className="font-semibold text-slate-900">{w.name}</p><span className="badge-state badge-todo">{roleLabel(access.workspaces.find(a=>a.id===w.id)?.role)}</span></div>
               <p className="mt-2 text-sm text-slate-500">Dự án và công việc trong phạm vi bạn được cấp quyền.</p>
               <Link to={`/projects?workspace=${w.id}`} className="mt-4 inline-flex text-sm font-medium text-primary hover:underline">Mở dự án →</Link>
             </Card>
