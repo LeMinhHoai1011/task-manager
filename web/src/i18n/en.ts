@@ -1,4 +1,5 @@
 const en: Record<string, string> = {
+  "auth.invalid_credentials": "Incorrect username/email or password. Create an account if you have not registered in this environment.",
   "app.title": "Task Management",
   "auth.login": "Sign in",
   "auth.logout": "Sign out",

@@ -11,13 +11,18 @@ interface ThemeContextType {
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 const THEME_KEY = "tm.theme";
+const PALETTE_KEY = "tm.palette-version";
+const PALETTE_VERSION = "daylight-1";
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(() => {
     try {
+      // The redesigned palette starts in light mode once, including clients
+      // that inherited the previous OS-driven dark appearance.
+      if (localStorage.getItem(PALETTE_KEY) !== PALETTE_VERSION) return "light";
       const saved = localStorage.getItem(THEME_KEY);
       if (saved === "dark" || saved === "light") return saved;
-      return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      return "light";
     } catch {
       return "light";
     }
@@ -26,6 +31,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     try {
       localStorage.setItem(THEME_KEY, theme);
+      localStorage.setItem(PALETTE_KEY, PALETTE_VERSION);
     } catch {}
     if (theme === "dark") {
       document.documentElement.classList.add("dark");

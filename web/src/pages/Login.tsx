@@ -49,7 +49,7 @@ export default function Login() {
               nav("/tasks");
             } catch (e: any) {
               // Không render text server: dùng uiMessage trung tính.
-              setErr(e?.uiMessage ?? t("error.generic"));
+              setErr(e?.status === 401 ? t("auth.invalid_credentials") : (e?.uiMessage ?? t("error.generic")));
             } finally {
               setBusy(false);
             }

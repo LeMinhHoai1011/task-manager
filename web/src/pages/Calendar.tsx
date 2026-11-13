@@ -144,13 +144,13 @@ export default function Calendar() {
       <header><h1 className="page-title">Lịch công việc</h1><p className="page-subtitle">Sắp xếp thời hạn và nhắc việc theo múi giờ {tz}.</p></header>
       <ScopeFilters scope={scope} projectId={projectId} teamId={teamId} onChange={(s,p,t)=>{setScope(s);setProjectId(p);setTeamId(t);setPage(0);}}/>
       <label>Ngày xem <input className="input" aria-label="Ngày xem" type="date" value={anchor} onChange={e=>{setAnchor(e.target.value);setPage(0);}}/></label>
-      <div className="mt-2 flex gap-1 rounded-lg bg-slate-100 p-1">
+      <div className="mt-2 flex gap-1 rounded-xl bg-slate-100 dark:bg-slate-800 p-1 border border-slate-200 dark:border-slate-700">
         {(["day", "week", "month", "unscheduled"] as const).map((m) => (
           <button
             key={m}
             onClick={() => {setMode(m);setPage(0);}}
             disabled={mode === m}
-            className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium ${mode === m ? "bg-white text-primary shadow" : "text-slate-600 hover:text-slate-900"}`}
+            className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${mode === m ? "bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs" : "text-slate-600 dark:text-slate-400 hover:text-slate-900"}`}
           >
             {{day:"Ngày",week:"Tuần",month:"Tháng",unscheduled:"Chưa lên lịch"}[m]}
           </button>

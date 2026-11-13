@@ -4,8 +4,8 @@
   "description": "Hệ thống quản lý công việc, dự án, ghi chú, tiến độ và báo cáo",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#172c3a",
-  "theme_color": "#087e83",
+  "background_color": "#F4F7F6",
+  "theme_color": "#2D7263",
   "icons": [
     {
       "src": "/favicon.ico",

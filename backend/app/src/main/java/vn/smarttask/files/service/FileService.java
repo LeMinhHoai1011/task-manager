@@ -53,6 +53,23 @@ public class FileService {
   private final JobService jobs;
   private final MinioClient minio;
   private final String bucket;
+  @Value("${file.gateway.mode:local}")
+  private String storageMode = "s3";
+  @Value("${file.gateway.local-root:./var/files}")
+  private String localRoot = "./var/files";
+
+  private java.nio.file.Path localPath(String key) {
+    var root = java.nio.file.Path.of(localRoot).toAbsolutePath().normalize();
+    var path = root.resolve(key).normalize();
+    if (!path.startsWith(root)) throw AppException.badRequest("FILE_PATH_INVALID", "Invalid storage path");
+    return path;
+  }
+
+  private void writeLocal(String key, byte[] bytes) throws java.io.IOException {
+    var path = localPath(key);
+    java.nio.file.Files.createDirectories(path.getParent());
+    java.nio.file.Files.write(path, bytes, java.nio.file.StandardOpenOption.CREATE_NEW);
+  }
 
   public FileService(AttachmentRepository attachments, FileVersionRepository versions,
       FileObjectRepository objects, UploadSessionRepository sessions,
@@ -158,12 +175,16 @@ public class FileService {
       throw AppException.badRequest("DECLARED_SIZE_MISMATCH", "Size mismatch");
     }
     try (InputStream in = new ByteArrayInputStream(bytes)) {
+      if ("local".equalsIgnoreCase(storageMode)) {
+        writeLocal(s.getStagingKey(), bytes);
+      } else {
       minio.putObject(PutObjectArgs.builder()
           .bucket(bucket)
           .object(s.getStagingKey())
           .stream(in, bytes.length, -1)
           .contentType(s.getMimeType())
           .build());
+      }
     } catch (Exception e) {
       throw mapStagingError(e);
     }
@@ -242,17 +263,25 @@ public class FileService {
     String sha = sha256Hex(staged);
     String objectKey = "att/" + att.getId() + "/v" + next;
     try {
+      if ("local".equalsIgnoreCase(storageMode)) {
+        writeLocal(objectKey, staged);
+      } else {
       minio.copyObject(CopyObjectArgs.builder().bucket(bucket).object(objectKey)
           .source(CopySource.builder().bucket(bucket).object(s.getStagingKey()).build())
           .build());
+      }
     } catch (Exception e) {
       throw mapStagingError(e);
     }
     // Best-effort staging delete; leftovers stay private under staging/ and
     // are swept by cleanupExpiredSessions().
     try {
+      if ("local".equalsIgnoreCase(storageMode)) {
+        java.nio.file.Files.deleteIfExists(localPath(s.getStagingKey()));
+      } else {
       minio.removeObject(RemoveObjectArgs.builder().bucket(bucket)
           .object(s.getStagingKey()).build());
+      }
     } catch (Exception ignored) {
       // swept later by cleanupExpiredSessions()
     }
@@ -359,8 +388,12 @@ public class FileService {
       sessions.save(s);
       if (s.getStagingKey() != null && !s.getStagingKey().isBlank()) {
         try {
+          if ("local".equalsIgnoreCase(storageMode)) {
+            java.nio.file.Files.deleteIfExists(localPath(s.getStagingKey()));
+          } else {
           minio.removeObject(RemoveObjectArgs.builder().bucket(bucket)
               .object(s.getStagingKey()).build());
+          }
         } catch (Exception ignored) {
           // leftovers stay private under staging/; retried on the next sweep
         }
@@ -377,6 +410,11 @@ public class FileService {
     if (s.getStagingKey() == null || s.getStagingKey().isBlank()) {
       throw AppException.stateConflict("STAGING_OBJECT_MISSING",
           "No staging object for session " + s.getId());
+    }
+    if ("local".equalsIgnoreCase(storageMode)) {
+      try { return java.nio.file.Files.readAllBytes(localPath(s.getStagingKey())); }
+      catch (java.nio.file.NoSuchFileException e) { throw AppException.stateConflict("STAGING_OBJECT_MISSING", "Staging object missing"); }
+      catch (java.io.IOException e) { throw StorageErrors.unavailable("staging", e); }
     }
     try (InputStream in = minio.getObject(GetObjectArgs.builder()
         .bucket(bucket).object(s.getStagingKey()).build())) {

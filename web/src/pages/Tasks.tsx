@@ -500,6 +500,11 @@ export default function Tasks() {
 
                         <div className="mt-2.5 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
                           <Badge state={it.state}>{stateLabel(it.state)}</Badge>
+                          {it.priority && (
+                            <span className={`badge-state text-[10px] ${it.priority === "URGENT" || it.priority === "HIGH" ? "badge-blocked" : "badge-todo"}`}>
+                              {it.priority}
+                            </span>
+                          )}
                           {isBlocked && (
                             <Badge state="BLOCKED">{t("task.blocked")}</Badge>
                           )}

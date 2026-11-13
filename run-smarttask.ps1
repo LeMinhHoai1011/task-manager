@@ -11,8 +11,7 @@ $ErrorActionPreference = "Continue"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $webDir = Join-Path $scriptDir "web"
 $backendDir = Join-Path $scriptDir "backend"
-$mavenDir = Join-Path $env:USERPROFILE ".smarttask-maven"
-$mavenZip = Join-Path $scriptDir "apache-maven-bin.zip"
+$mvnCmd = Join-Path $backendDir 'mvnw.cmd'
 
 # Mau thong bao
 function Write-Header($text) { Write-Host "`n==========================================" -ForegroundColor Cyan; Write-Host "  $text" -ForegroundColor Cyan; Write-Host "==========================================" -ForegroundColor Cyan }
@@ -26,34 +25,8 @@ function Write-Info($text){ Write-Host "  [INFO] $text" -ForegroundColor Gray }
 # -----------------------------------------------------------------------------
 Write-Header "CHUAN BI MAVEN"
 
-function Find-MavenCmd() {
-  $cmd = Get-Command "mvn.cmd" -ErrorAction SilentlyContinue
-  if ($cmd) { return $cmd.Source }
-  $cmd = Get-Command "mvn" -ErrorAction SilentlyContinue
-  if ($cmd) { return $cmd.Source }
-  $cmd = Join-Path $mavenDir "bin\mvn.cmd"
-  if (Test-Path $cmd) { return $cmd }
-  return $null
-}
-
-$mvnCmd = Find-MavenCmd
-if (-not $mvnCmd) {
-  Write-Info "Maven chua co tren may. Dang tai Maven 3.9.11 ve $mavenDir ..."
-  if (-not (Test-Path $mavenDir)) { New-Item -ItemType Directory -Path $mavenDir -Force | Out-Null }
-  try {
-    Invoke-WebRequest -Uri "https://archive.apache.org/dist/maven/maven-3/3.9.11/binaries/apache-maven-3.9.11-bin.zip" -OutFile $mavenZip -TimeoutSec 120
-    Expand-Archive -Path $mavenZip -DestinationPath $mavenDir -Force
-    Remove-Item $mavenZip -Force
-    $mvnCmd = Join-Path $mavenDir "bin\mvn.cmd"
-    Write-Ok "Da tai Maven ve $mvnCmd"
-  } catch {
-    Write-Err "Khong the tai Maven: $_"
-    Write-Err "Vui long cai Maven thu cong roi chay lai script."
-    exit 1
-  }
-} else {
-  Write-Ok "Tim thay Maven: $mvnCmd"
-}
+if (-not (Test-Path $mvnCmd)) { throw 'Missing backend/mvnw.cmd' }
+Write-Ok "Maven Wrapper: $mvnCmd"
 
 # -----------------------------------------------------------------------------
 # 2. Kiem tra moi truong (khong bat buoc Maven nua)

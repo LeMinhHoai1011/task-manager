@@ -25,7 +25,7 @@ RUN mkdir -p /app/var/files && chown -R smarttask:smarttask /app
 
 USER smarttask
 EXPOSE 8080
-ENV JAVA_OPTS="-XX:MaxRAMPercentage=75 -XX:+UseG1GC"
+ENV JAVA_OPTS="-XX:MaxRAMPercentage=60 -XX:+UseG1GC"
 
 # sh -c so JAVA_OPTS can be overridden from the environment.
 ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/app.jar"]

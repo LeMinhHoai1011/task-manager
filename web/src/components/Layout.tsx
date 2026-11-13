@@ -90,7 +90,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   );
 
   return (
-    <div className="layout app-shell text-slate-900 dark:text-slate-100 bg-[#f2f5f7] dark:bg-[#0f1a22] transition-colors">
+    <div className="layout app-shell text-slate-800 dark:text-slate-100 bg-[var(--color-bg)] transition-colors">
       <OfflineBanner />
       <a className="skip-link" href="#main-content">
         Đến nội dung chính
@@ -115,12 +115,12 @@ export default function Layout({ children }: { children: ReactNode }) {
             <AppIcon name="tasks" size={22} />
           </span>
           <span>
-            SmartTask<span className="brand-caption">V3.0 Modern SaaS</span>
+            SmartTask<span className="brand-caption">Công việc gọn gàng hơn</span>
           </span>
         </NavLink>
 
         {/* NHÓM 1: THÀNH VIÊN (Member) */}
-        <p className="nav-group-label">Thành viên</p>
+        <p className="nav-group-label">Công việc của bạn</p>
         {link("/dashboard", "Tổng quan", "overview")}
         {link("/my-tasks", "Việc của tôi", "personal")}
         {link("/tasks", t("nav.tasks"), "tasks")}
@@ -150,10 +150,10 @@ export default function Layout({ children }: { children: ReactNode }) {
         {link("/settings", "Cài đặt", "settings")}
         {ENABLE_AI && link("/ai", t("nav.ai"), "ai")}
 
-        <div className="mt-auto border-t border-slate-700/50 pt-3">
+        <div className="mt-auto border-t border-slate-200 pt-3">
           <RealtimeIndicator />
           <button
-            className="btn btn-ghost mt-2 w-full justify-start text-xs text-slate-400 hover:text-white"
+            className="btn btn-ghost mt-2 w-full justify-start text-xs"
             onClick={async () => {
               await auth.logout();
               nav("/login");

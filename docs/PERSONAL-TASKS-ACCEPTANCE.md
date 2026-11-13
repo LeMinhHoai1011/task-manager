@@ -45,8 +45,8 @@ Lệnh chính:
 
 ```powershell
 $env:JAVA_HOME='C:\Program Files\Java\jdk-21'
-& .\.tools\apache-maven-3.9.11\bin\mvn.cmd -B -f backend/pom.xml test
-& .\.tools\apache-maven-3.9.11\bin\mvn.cmd -B -f backend/app/pom.xml '-Dtest=PersonalTaskServiceTest,PersonalTaskApiIT,TaskVersionTest' test
+& .\backend\mvnw.cmd -B -f backend/pom.xml test
+& .\backend\mvnw.cmd -B -f backend/app/pom.xml '-Dtest=PersonalTaskServiceTest,PersonalTaskApiIT,TaskVersionTest' test
 cd web
 npm.cmd run build
 npm.cmd test

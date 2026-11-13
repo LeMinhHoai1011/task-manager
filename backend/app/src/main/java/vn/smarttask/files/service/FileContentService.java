@@ -24,6 +24,8 @@ public class FileContentService {
   private final MinioClient minio;
   private final String bucket;
   private final Path localRoot;
+  @Value("${file.gateway.mode:local}")
+  private String storageMode = "s3";
 
   public FileContentService(MinioClient minio,
       @Value("${file.gateway.minio-bucket:smarttask}") String bucket,
@@ -39,6 +41,12 @@ public class FileContentService {
   public record Content(byte[] bytes, String contentType) {}
 
   public Content read(String objectKey, String bucketOverride, String contentType) {
+    if ("local".equalsIgnoreCase(storageMode)) {
+      Path local = localRoot.resolve(objectKey).normalize();
+      if (!local.startsWith(localRoot) || !Files.isRegularFile(local)) throw missing(objectKey);
+      try { return new Content(Files.readAllBytes(local), contentType); }
+      catch (java.io.IOException e) { throw StorageErrors.unavailable(objectKey, e); }
+    }
     String b = bucketOverride != null ? bucketOverride : bucket;
     Exception s3failure = null;
     try {

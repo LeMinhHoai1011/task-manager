@@ -110,7 +110,7 @@ Windows (cmd, tại D:\task; PostgreSQL16 tại 5434 và S3Mock tại 9090 đã 
 set JAVA_HOME=C:\Program Files\Java\jdk-21
 set SMARTTASK_IT_DATABASE_URL=jdbc:postgresql://localhost:5434/smarttask_itg
 set SMARTTASK_F21_DATABASE_URL=jdbc:postgresql://localhost:5434/smarttask_f21
-.tools\apache-maven-3.9.11\bin\mvn.cmd -B -f backend/pom.xml -Dtest=*Test,*IT test
+backend\mvnw.cmd -B -f backend/pom.xml -Dtest=*Test,*IT test
 cd web
 npm ci
 npm test -- --run

@@ -1,5 +1,5 @@
 // SmartTask V3.0 Service Worker (PWA, Offline Caching, Web Push)
-const CACHE_NAME = "smarttask-v3-cache";
+const CACHE_NAME = "smarttask-daylight-v1";
 const STATIC_ASSETS = [
   "/",
   "/index.html",

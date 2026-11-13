@@ -1,4 +1,5 @@
 const vi: Record<string, string> = {
+  "auth.invalid_credentials": "Tên đăng nhập/email hoặc mật khẩu không đúng. Nếu chưa có tài khoản trên môi trường này, vui lòng đăng ký.",
   "app.title": "Quản lý công việc",
   "auth.login": "Đăng nhập",
   "auth.logout": "Đăng xuất",

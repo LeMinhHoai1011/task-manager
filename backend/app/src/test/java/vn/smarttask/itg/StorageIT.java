@@ -59,6 +59,7 @@ import vn.smarttask.identity.entity.AppUser;
  * {@code storageit/<uuid>/}, so parallel/sequential runs never collide.
  */
 @TestPropertySource(properties = {
+    "file.gateway.mode=s3",
     "file.gateway.minio-endpoint=http://localhost:9090",
     "file.gateway.minio-access-key=test",
     "file.gateway.minio-secret-key=test",

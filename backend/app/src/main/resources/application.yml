@@ -3,9 +3,9 @@ server:
 
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:5432/smarttask
-    username: smarttask
-    password: smarttask
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://127.0.0.1:5432/smarttask}
+    username: ${SPRING_DATASOURCE_USERNAME:smarttask}
+    password: ${SPRING_DATASOURCE_PASSWORD:}
   jpa:
     hibernate:
       ddl-auto: validate
@@ -28,8 +28,8 @@ file:
     mode: local
     local-root: ./var/files
     minio-endpoint: http://localhost:9000
-    minio-access-key: minio
-    minio-secret-key: minio123
+    minio-access-key: ${FILE_GATEWAY_MINIO_ACCESS_KEY:}
+    minio-secret-key: ${FILE_GATEWAY_MINIO_SECRET_KEY:}
     minio-bucket: smarttask
 smarttask:
   self-registration: true
@@ -42,3 +42,6 @@ smarttask:
 logging:
   level:
     vn.smarttask: INFO
+    # Request/response DTOs can contain credentials and opaque session tokens.
+    # Keep Spring MVC body logging disabled even when root logging is DEBUG.
+    org.springframework.web: INFO

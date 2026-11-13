@@ -25,9 +25,11 @@ target/
 # Logs
 *.log
 logs/
+.run/
 
 # Database / uploads
 *.dump
 backups/
 uploads/
+backend/app/var/files/
 *.tmp
