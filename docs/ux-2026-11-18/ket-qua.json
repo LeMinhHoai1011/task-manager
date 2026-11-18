@@ -1,0 +1,13 @@
+{
+  "mode": "Dữ liệu giả lập, không truy cập máy chủ hoặc database thật",
+  "results": [
+    "Bộ lọc chi tiết thu gọn; điều kiện đang áp dụng có thể xóa khi đã thu gọn.",
+    "Tìm tên tiếng Việt không dấu; hai người trùng tên được phân biệt bằng tên đăng nhập.",
+    "Giao hàng loạt chọn người bằng tên và gửi mã cùng phiên bản công việc.",
+    "Khôi phục tại đúng tệp, chọn phiên bản có thật và xác nhận tạo phiên bản mới.",
+    "Mở lịch từ công việc giữ ngữ cảnh công việc đã chọn.",
+    "Mở các màn hình dự án, không gian, nhóm, phân quyền, ghi chú, việc cá nhân, báo cáo, cài đặt, thông báo, hướng dẫn, trợ lý, quản trị và chi tiết.",
+    "Điện thoại 390 px: trang công việc và bộ chọn không tràn ngang; đóng bộ chọn bằng Escape."
+  ],
+  "errors": []
+}

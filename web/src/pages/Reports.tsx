@@ -6,10 +6,12 @@ import {
   newIdempotencyKey,
   saveBlobAsFile,
   unwrapData,
-  unwrapPage,
 } from "../api/client";
 import { t } from "../i18n";
-import { Button, Card, ErrorAlert, Select, Spinner } from "../components/ui";
+import {useAccess} from "../auth/AccessContext";
+import ResourcePicker from "../components/ResourcePicker";
+import {statusLabel} from "../i18n/labels";
+import { Button, Card, ErrorAlert, Spinner } from "../components/ui";
 import AppIcon from "../components/AppIcon";
 
 type Dash = "personal" | "project";
@@ -47,10 +49,6 @@ interface ExportJob {
   status: string;
 }
 
-interface ProjectOption {
-  id: string;
-  name: string;
-}
 
 export function rate(done: number, total: number): string {
   if (total === 0) return t("report.na");
@@ -58,20 +56,14 @@ export function rate(done: number, total: number): string {
 }
 
 export default function Reports() {
+  const projects=useAccess().projects;
   const [projectId, setProjectId] = useState("");
   const [data, setData] = useState<DashboardData | null>(null);
   const [job, setJob] = useState<ExportJob | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
-  const [projects, setProjects] = useState<ProjectOption[]>([]);
   const [timeRange, setTimeRange] = useState<"week" | "month" | "quarter">("month");
-
-  useEffect(() => {
-    apiFetch("/projects", { query: { limit: 100 } })
-      .then((r) => setProjects(unwrapPage<ProjectOption>(r).items))
-      .catch(() => setProjects([]));
-  }, []);
 
   const load = useCallback(async (d: Dash) => {
     setErr(null);
@@ -142,7 +134,7 @@ export default function Reports() {
       `# SMARTTASK REPORT - ${title}`,
       `Ngày xuất: ${date}`,
       `Phạm vi: ${data?.scope === "PROJECT" ? "Dự án" : "Cá nhân"}`,
-      `Trạng thái tổng thể: ${data?.overall ?? "N/A"}`,
+      `Trạng thái tổng thể: ${statusLabel(data?.overall)}`,
       "",
       "## 1. Số liệu tổng quan",
       `- Tổng số công việc: ${total}`,
@@ -238,7 +230,7 @@ export default function Reports() {
             <span>{t("nav.reports")}</span>
           </h1>
           <p className="page-subtitle text-xs text-slate-500 mt-1">
-            Theo dõi tiến độ, burndown chart, công việc quá hạn và trích xuất dữ liệu đa định dạng.
+            Theo dõi tiến độ, biểu đồ công việc còn lại, công việc quá hạn và trích xuất dữ liệu đa định dạng.
           </p>
         </div>
 
@@ -255,19 +247,8 @@ export default function Reports() {
       {/* Filter toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">
         <div className="flex flex-wrap items-center gap-3">
-          <Select
-            aria-label="Dự án báo cáo"
-            value={projectId}
-            onChange={(e) => setProjectId(e.target.value)}
-            className="!w-64 text-xs"
-          >
-            <option value="">Báo cáo cá nhân</option>
-            {projects.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.name}
-              </option>
-            ))}
-          </Select>
+          <ResourcePicker kind="projects" label="Dự án báo cáo" placeholder="Báo cáo cá nhân" value={projectId} onChange={setProjectId}/>
+          {!projectId&&<span className="text-sm">Đang xem báo cáo cá nhân</span>}
 
           <div className="flex items-center gap-1.5 text-xs">
             <button
@@ -343,10 +324,10 @@ export default function Reports() {
           <div className="flex items-center justify-between mb-4 border-b border-slate-100 dark:border-slate-800 pb-2">
             <div>
               <h3 className="font-bold text-sm text-slate-900 dark:text-white">
-                Biểu đồ Burndown (Khối lượng việc còn lại)
+                Biểu đồ khối lượng công việc còn lại
               </h3>
               <p className="text-xs text-slate-400">
-                Dữ liệu từ báo cáo thực tế (công việc còn lại vs tổng số)
+                Dữ liệu từ báo cáo thực tế (công việc còn lại so với tổng số)
               </p>
             </div>
             <span className="text-xs font-semibold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
@@ -413,7 +394,7 @@ export default function Reports() {
               Xuất tệp báo cáo Durable (Hỗ trợ tải tệp 24h)
             </h3>
             <p className="text-xs text-slate-500">
-              Tạo job xuất báo cáo trên server và tải file an toàn
+              Tạo job xuất báo cáo trên server và tải tệp an toàn
             </p>
           </div>
           <div className="row !my-0 flex items-center gap-2">
@@ -444,7 +425,7 @@ export default function Reports() {
                   <td className="p-3 font-mono text-xs">{job.export_job_id}</td>
                   <td className="p-3">
                     <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300">
-                      {job.status}
+                      {statusLabel(job.status)}
                     </span>
                   </td>
                   <td className="p-3 text-right">

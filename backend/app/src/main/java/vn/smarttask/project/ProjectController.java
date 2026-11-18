@@ -37,7 +37,11 @@ public class ProjectController {
       @JsonProperty("status") String status,
       @JsonProperty("created_at") OffsetDateTime createdAt) {}
   public record MemberDto(@JsonProperty("user_id") UUID userId,
-      @JsonProperty("role") String role) {}
+      @JsonProperty("role") String role,
+      @JsonProperty("display_name") String displayName,
+      @JsonProperty("username") String username) {
+    public MemberDto(UUID userId, String role) { this(userId, role, null, null); }
+  }
   public record MilestoneDto(@JsonProperty("id") UUID id,
       @JsonProperty("project_id") UUID projectId,
       @JsonProperty("title") String title,
@@ -139,8 +143,8 @@ public class ProjectController {
   public ResponseEntity<ApiResult<List<MemberDto>>> members(@PathVariable UUID id) {
     UUID actor = CurrentActor.userId();
     policy.requireProjectRead(actor, id);
-    var list = projects.listMembers(actor, id).stream()
-        .map(m -> new MemberDto(m.getUserId(), m.getRole())).toList();
+    var list = projects.listMemberDetails(actor, id).stream()
+        .map(m -> new MemberDto(m.userId(), m.role(), m.displayName(), m.username())).toList();
     return ResponseEntity.ok(ApiResult.ok(list, "project.members.success"));
   }
 

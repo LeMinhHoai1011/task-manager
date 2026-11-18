@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
-import { apiFetch, mutationOpts, newIdempotencyKey, unwrapData, unwrapList, unwrapPage } from "../api/client";
+import { apiFetch, mutationOpts, newIdempotencyKey, unwrapData, unwrapList } from "../api/client";
 import { t } from "../i18n";
+import ResourcePicker from "../components/ResourcePicker";
+import {statusLabel} from "../i18n/labels";
 import { Button, Card, EmptyState, ErrorAlert, Select } from "../components/ui";
 
 // AI chỉ gợi ý, không bao giờ tự mutation: mọi thay đổi công việc đều qua nút
@@ -29,7 +31,7 @@ interface AiSuggestion {
   status: string;
   payload: string;
 }
-interface ProjectOption { id: string; name: string; }
+
 
 function parsePayload(payload: string): Array<{ k: string; v: string }> | null {
   try {
@@ -60,7 +62,6 @@ export default function Ai() {
   const [busy, setBusy] = useState(false);
   const [confirmAccept, setConfirmAccept] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  const [projects, setProjects] = useState<ProjectOption[]>([]);
 
   async function loadHistory() {
     try {
@@ -74,7 +75,6 @@ export default function Ai() {
 
   useEffect(() => {
     void loadHistory();
-    apiFetch("/projects", { query: { limit: 100 } }).then((r) => setProjects(unwrapPage<ProjectOption>(r).items)).catch(() => setProjects([]));
   }, []);
 
   async function refreshJob(id: string) {
@@ -203,13 +203,13 @@ export default function Ai() {
             <span className="label">{t("ai.feature")}</span>
             <Select aria-label={t("ai.feature")} value={feature} onChange={(e) => setFeature(e.target.value)}>
               {FEATURES.map((f) => (
-                <option key={f} value={f}>{f}</option>
+                <option key={f} value={f}>{statusLabel(f)}</option>
               ))}
             </Select>
           </label>
           <label className="block">
             <span className="label">{t("ai.project_id")}</span>
-            <Select className="min-w-56" value={projectId} onChange={(e) => setProjectId(e.target.value)}><option value="">Không gắn dự án</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</Select>
+            <ResourcePicker kind="projects" label="Dự án (không bắt buộc)" placeholder="Không gắn dự án" value={projectId} onChange={setProjectId}/>
           </label>
         </div>
         <label className="mt-2 block">
@@ -235,8 +235,8 @@ export default function Ai() {
             <tbody>
               <tr>
                 <td className="font-mono text-xs">{job.id}</td>
-                <td>{job.feature}</td>
-                <td>{job.status}</td>
+                <td>{statusLabel(job.feature)}</td>
+                <td>{statusLabel(job.status)}</td>
                 <td>
                   <div className="flex flex-wrap gap-2">
                     <Button variant="secondary" size="sm" onClick={() => void refreshJob(job.id)}>{t("common.refresh")}</Button>
@@ -258,8 +258,8 @@ export default function Ai() {
           <table className="table mt-2">
             <tbody>
               {parsed.map((row) => (
-                <tr key={row.k}>
-                  <td className="w-40 font-medium text-slate-700">{row.k}</td>
+                <tr key={statusLabel(row.k)}>
+                  <td className="w-40 font-medium text-slate-700">{statusLabel(row.k)}</td>
                   <td className="whitespace-pre-wrap">{row.v}</td>
                 </tr>
               ))}
@@ -295,8 +295,8 @@ export default function Ai() {
                       {h.id}
                     </button>
                   </td>
-                  <td>{h.feature}</td>
-                  <td>{h.status}</td>
+                  <td>{statusLabel(h.feature)}</td>
+                  <td>{statusLabel(h.status)}</td>
                 </tr>
               ))}
             </tbody>

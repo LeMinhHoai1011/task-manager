@@ -120,11 +120,11 @@ export default function Settings() {
 
   const handleSubscribeWebPush = async () => {
     if (!pushDeliveryEnabled) {
-      showToast({ type: "warning", message: "Web Push đang tắt vì dịch vụ gửi chưa được hỗ trợ. Thông báo trong ứng dụng vẫn hoạt động." });
+      showToast({ type: "warning", message: "thông báo đẩy trên trình duyệt đang tắt vì dịch vụ gửi chưa được hỗ trợ. Thông báo trong ứng dụng vẫn hoạt động." });
       return;
     }
     if (!pushSupported) {
-      showToast({ type: "error", message: "Trình duyệt không hỗ trợ Web Push Notification" });
+      showToast({ type: "error", message: "Trình duyệt không hỗ trợ thông báo đẩy trên trình duyệt" });
       return;
     }
 
@@ -184,7 +184,7 @@ export default function Settings() {
       setPushSubscribed(true);
       showToast({
         type: "success",
-        message: "Kích hoạt Web Push thành công! Bạn sẽ nhận được thông báo về công việc.",
+        message: "Kích hoạt thông báo đẩy trên trình duyệt thành công! Bạn sẽ nhận được thông báo về công việc.",
       });
       loadDevices();
       // Xác nhận trạng thái đăng ký từ backend
@@ -195,7 +195,7 @@ export default function Settings() {
     } catch (e: any) {
       showToast({
         type: "error",
-        message: e?.uiMessage || "Không thể đăng ký Web Push",
+        message: e?.uiMessage || "Không thể đăng ký thông báo đẩy trên trình duyệt",
       });
     } finally {
       setSubscribingPush(false);
@@ -259,7 +259,7 @@ export default function Settings() {
           <span>Cài đặt cá nhân</span>
         </h1>
         <p className="page-subtitle text-xs text-slate-500 mt-1">
-          Quản lý tài khoản, giao diện sáng/tối, thông báo đẩy Web Push, thiết bị và bảo mật.
+          Quản lý tài khoản, giao diện sáng/tối, thông báo đẩy thông báo đẩy trên trình duyệt, thiết bị và bảo mật.
         </p>
       </div>
 
@@ -271,7 +271,7 @@ export default function Settings() {
             { id: "appearance", label: "Giao diện (Theme)", icon: "report" },
             { id: "language", label: "Ngôn ngữ", icon: "roles" },
             { id: "notifications", label: "Thông báo & Giờ nghỉ", icon: "bell" },
-            { id: "devices", label: "Thiết bị & Web Push", icon: "team" },
+            { id: "devices", label: "Thiết bị & thông báo đẩy trên trình duyệt", icon: "team" },
             { id: "security", label: "Bảo mật & Mật khẩu", icon: "settings" },
             { id: "backup", label: "Dữ liệu & Sao lưu", icon: "files" },
           ].map((tab) => (
@@ -323,7 +323,7 @@ export default function Settings() {
             </div>
           )}
 
-          <p className="text-sm"><a href="/my-role">Xem vai trò Workspace/Project và việc cần làm của bạn →</a></p>
+          <p className="text-sm"><a href="/my-role">Xem vai trò không gian làm việc/dự án và việc cần làm của bạn →</a></p>
           {/* TAB 2: APPEARANCE */}
           {activeTab === "appearance" && (
             <div className="space-y-6 max-w-lg">
@@ -345,7 +345,7 @@ export default function Settings() {
                   }`}
                 >
                   <div className="text-2xl mb-1">☀️</div>
-                  <div className="font-bold text-sm text-slate-900 dark:text-white">Giao diện Sáng</div>
+                  <div className="font-bold text-sm text-slate-900 dark:text-white">Giao diện sáng</div>
                   <div className="text-[11px] text-slate-400 mt-1">Chuẩn Modern Productivity</div>
                 </button>
 
@@ -359,7 +359,7 @@ export default function Settings() {
                   }`}
                 >
                   <div className="text-2xl mb-1">🌙</div>
-                  <div className="font-bold text-sm text-slate-900 dark:text-white">Giao diện Tối</div>
+                  <div className="font-bold text-sm text-slate-900 dark:text-white">Giao diện tối</div>
                   <div className="text-[11px] text-slate-400 mt-1">Dễ chịu ban đêm</div>
                 </button>
               </div>
@@ -372,45 +372,7 @@ export default function Settings() {
               <h3 className="font-bold text-base text-slate-900 dark:text-white border-b border-slate-100 dark:border-slate-800 pb-2">
                 Ngôn ngữ hiển thị
               </h3>
-              <div className="space-y-2">
-                <label className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 dark:border-slate-800 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="lang"
-                    checked={localStorage.getItem("tm.locale") !== "en"}
-                    onChange={() => {
-                      localStorage.setItem("tm.locale", "vi");
-                      window.location.reload();
-                    }}
-                    className="text-primary"
-                  />
-                  <div>
-                    <div className="font-bold text-sm text-slate-900 dark:text-white">
-                      🇻🇳 Tiếng Việt
-                    </div>
-                    <div className="text-xs text-slate-500">Mặc định hệ thống</div>
-                  </div>
-                </label>
-
-                <label className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 dark:border-slate-800 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="lang"
-                    checked={localStorage.getItem("tm.locale") === "en"}
-                    onChange={() => {
-                      localStorage.setItem("tm.locale", "en");
-                      window.location.reload();
-                    }}
-                    className="text-primary"
-                  />
-                  <div>
-                    <div className="font-bold text-sm text-slate-900 dark:text-white">
-                      🇬🇧 English
-                    </div>
-                    <div className="text-xs text-slate-500">Standard English interface</div>
-                  </div>
-                </label>
-              </div>
+              <p>Tiếng Việt được dùng thống nhất cho toàn bộ giao diện.</p><p className="text-sm text-slate-500">Tên dự án, công việc và nội dung do bạn nhập được giữ nguyên. Ngày giờ hiển thị theo múi giờ đã chọn.</p>
             </div>
           )}
 
@@ -509,10 +471,10 @@ export default function Settings() {
             <div className="space-y-6 max-w-xl">
               <div>
                 <h3 className="font-bold text-base text-slate-900 dark:text-white border-b border-slate-100 dark:border-slate-800 pb-2">
-                  Thiết bị & Web Push Notification
+                  Thiết bị & thông báo đẩy trên trình duyệt
                 </h3>
                 <p className="text-xs text-slate-500 mt-1">
-                  Thông báo trong ứng dụng vẫn hoạt động. Web Push đang tắt do chưa có dịch vụ gửi.
+                  Thông báo trong ứng dụng vẫn hoạt động. thông báo đẩy trên trình duyệt đang tắt do chưa có dịch vụ gửi.
                 </p>
               </div>
 
@@ -520,10 +482,10 @@ export default function Settings() {
               <div className="p-4 rounded-xl border border-primary/20 bg-primary/5 flex items-start justify-between gap-4">
                 <div>
                   <h4 className="font-bold text-sm text-slate-900 dark:text-white">
-                    Thông báo đẩy trình duyệt (Web Push)
+                    Thông báo đẩy trình duyệt (thông báo đẩy trên trình duyệt)
                   </h4>
                   <p className="text-xs text-slate-600 dark:text-slate-300 mt-1">
-                    {!pushDeliveryEnabled ? "Web Push chưa được hỗ trợ trên máy chủ này."
+                    {!pushDeliveryEnabled ? "thông báo đẩy trên trình duyệt chưa được hỗ trợ trên máy chủ này."
                       : pushSubscribed
                       ? "✓ Đã cấp quyền thông báo trên trình duyệt này."
                       : "Nhấn nút bên dưới để cấp quyền nhận thông báo đẩy cho trình duyệt này (không popup tự động)."}
@@ -539,7 +501,7 @@ export default function Settings() {
                     ? "Đang kích hoạt..."
                     : pushSubscribed
                     ? "✓ Đã kích hoạt"
-                    : "Kích hoạt Web Push"}
+                    : "Kích hoạt thông báo đẩy trên trình duyệt"}
                 </button>
               </div>
 
@@ -551,7 +513,7 @@ export default function Settings() {
 
                 {devices.length === 0 ? (
                   <p className="text-xs text-slate-400 py-3">
-                    Chưa có thiết bị nào được liên kết nhận push.
+                    Chưa có thiết bị nào được liên kết nhận thông báo đẩy.
                   </p>
                 ) : (
                   <div className="divide-y divide-slate-100 dark:divide-slate-800 border rounded-xl overflow-hidden">
@@ -565,7 +527,7 @@ export default function Settings() {
                             {d.device_label || d.platform}
                           </div>
                           <div className="text-[11px] text-slate-400">
-                            Token: {d.token_hint} • Ngày đk:{" "}
+                            Mã thiết bị: {d.token_hint} • Ngày đăng ký:{" "}
                             {new Date(d.registered_at).toLocaleDateString("vi-VN")}
                           </div>
                         </div>
@@ -643,7 +605,7 @@ export default function Settings() {
           {activeTab === "backup" && (
             <div className="space-y-4 max-w-lg">
               <h3 className="font-bold text-base text-slate-900 dark:text-white border-b border-slate-100 dark:border-slate-800 pb-2">
-                Dữ liệu & Sao lưu (Admin)
+                Dữ liệu & Sao lưu (quản trị viên)
               </h3>
               <p className="text-xs text-slate-500">
                 Chính sách sao lưu cơ sở dữ liệu định kỳ trên Ubuntu PostgreSQL và MinIO.

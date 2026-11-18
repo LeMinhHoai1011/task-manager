@@ -1,3 +1,4 @@
+vi.mock("../auth/AuthContext",()=>({useAuth:()=>({user:{id:"me"}})}));
 import {fireEvent,render,screen,waitFor,cleanup} from "@testing-library/react";
 import {MemoryRouter} from "react-router-dom";
 import {afterEach,expect,test,vi} from "vitest";
@@ -6,7 +7,7 @@ const {request}=vi.hoisted(()=>({request:vi.fn()}));
 vi.mock("../api/client",async original=>({...await original<typeof import("../api/client")>(),apiFetch:request}));
 vi.mock("../realtime/RealtimeContext",()=>({useRealtimeEvent:()=>{}}));
 afterEach(()=>{cleanup();request.mockReset();});
-async function board(){render(<MemoryRouter><Tasks/></MemoryRouter>);await screen.findByText("Board task");fireEvent.click(screen.getByRole("button",{name:"Kanban"}));return screen.getByLabelText("Chuyển trạng thái Board task");}
+async function board(){render(<MemoryRouter><Tasks/></MemoryRouter>);await screen.findByText("Board task");fireEvent.click(screen.getByRole("button",{name:"Bảng tiến độ"}));return screen.getByLabelText("Chuyển trạng thái Board task");}
 test("restores the card when workflow denies a transition",async()=>{
   request.mockImplementation((_path:string,options:any)=>options?.method==="POST"?Promise.reject({uiMessage:"Quyền đã bị thu hồi"}):Promise.resolve({data:{items:[{id:"task1",title:"Board task",state:"TODO",version:7}]}}));
   const select=await board();fireEvent.change(select,{target:{value:"IN_PROGRESS"}});

@@ -43,6 +43,15 @@ import vn.smarttask.task.repo.TaskRepository;
 public class FileService {
   private final AttachmentRepository attachments;
   private final FileVersionRepository versions;
+
+  public record VersionInfo(int version, String note, OffsetDateTime createdAt, long sizeBytes) {}
+
+  @Transactional(readOnly = true)
+  public List<VersionInfo> history(UUID attachmentId) {
+    return versions.findByAttachmentIdOrderByVersionNoAsc(attachmentId).stream()
+        .map(v -> new VersionInfo(v.getVersionNo(), v.getChangeNote(), v.getCreatedAt(), v.getSizeBytes()))
+        .toList();
+  }
   private final FileObjectRepository objects;
   private final UploadSessionRepository sessions;
   private final FileAccessEventRepository accessEvents;

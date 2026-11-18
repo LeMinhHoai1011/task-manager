@@ -1,3 +1,4 @@
+import {statusLabel} from "../i18n/labels";
 import React, { useEffect, useState, useCallback } from "react";
 import { useParams, useSearchParams, useNavigate } from "react-router-dom";
 import { apiFetch } from "../api/client";
@@ -223,7 +224,7 @@ export default function ProjectDetail() {
             </div>
             <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-3">
               <span>{project?.name || "Dự án"}</span>
-              <Badge tone="badge-in-progress">{project?.status ?? "PLANNING"}</Badge>
+              <Badge tone="badge-in-progress">{statusLabel(project?.status??"PLANNING")}</Badge>
             </h1>
             <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-2xl">
               {project?.description || "Không có mô tả dự án."}
@@ -247,7 +248,7 @@ export default function ProjectDetail() {
           <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-850/60 border border-slate-100 dark:border-slate-800">
             <div className="flex items-center justify-between text-xs font-semibold mb-2">
               <span className="text-slate-600 dark:text-slate-300">
-                Tiến độ Task tự động (Đã hoàn thành / Tổng số)
+                Tiến độ công việc tự động (Đã hoàn thành / Tổng số)
               </span>
               <span className="text-primary font-bold">{computedProgressPercent}%</span>
             </div>
@@ -287,7 +288,7 @@ export default function ProjectDetail() {
         </div>
       </div>
 
-      <p role="note" className="card">Vai trò dự án: <strong>{roleLabel(projectRole)}</strong>. {canManage?"Lập và giao việc, theo dõi tiến độ, duyệt kết quả và quản lý thành viên.":projectRole==="MEMBER"?"Thực hiện việc được giao, cập nhật tiến độ và nộp kết quả.":"Chỉ xem Project và công việc được chia sẻ."}</p>
+      <p role="note" className="card">Vai trò dự án: <strong>{roleLabel(projectRole)}</strong>. {canManage?"Lập và giao việc, theo dõi tiến độ, duyệt kết quả và quản lý thành viên.":projectRole==="MEMBER"?"Thực hiện việc được giao, cập nhật tiến độ và nộp kết quả.":"Chỉ xem dự án và công việc được chia sẻ."}</p>
       {/* 7 Tabs Navigation */}
       <div className="border-b border-slate-200 dark:border-slate-800 overflow-x-auto">
         <nav className="flex gap-2 min-w-max pb-px">
@@ -360,11 +361,11 @@ export default function ProjectDetail() {
                         {t.title}
                       </div>
                       <div className="text-xs text-slate-400 mt-0.5">
-                        Ưu tiên: {t.priority} • Hạn chót:{" "}
+                        Ưu tiên: {statusLabel(t.priority)} • Hạn chót:{" "}
                         {t.due_at ? new Date(t.due_at).toLocaleDateString("vi-VN") : "Chưa đặt"}
                       </div>
                     </div>
-                    <Badge state={t.state}>{t.state}</Badge>
+                    <Badge state={t.state}>{statusLabel(t.state)}</Badge>
                   </div>
                 ))}
               </div>
@@ -385,7 +386,7 @@ export default function ProjectDetail() {
               onClick={() => navigate(`/tasks?project_id=${id}`)}
               className="btn btn-secondary text-xs"
             >
-              Mở trong bảng Kanban lớn →
+              Mở trong bảng bảng tiến độ lớn →
             </button>
           </div>
 
@@ -401,10 +402,10 @@ export default function ProjectDetail() {
                     {t.title}
                   </div>
                   <div className="text-xs text-slate-400 mt-1">
-                    Trạng thái: {t.state} • Ưu tiên: {t.priority}
+                    Trạng thái: {statusLabel(t.state)} • Ưu tiên: {statusLabel(t.priority)}
                   </div>
                 </div>
-                <Badge state={t.state}>{t.state}</Badge>
+                <Badge state={t.state}>{statusLabel(t.state)}</Badge>
               </div>
             ))}
           </div>
@@ -552,11 +553,11 @@ export default function ProjectDetail() {
               <div key={m.id || m.user_id} className="py-3 flex items-center justify-between text-sm">
                 <div>
                   <div className="font-medium text-slate-900 dark:text-white">
-                    {m.user_email || m.email || m.user_id}
+                    {m.display_name || m.username || m.user_email || m.email || "Thành viên"}
                   </div>
-                  <div className="text-xs text-slate-400">Tham gia dự án</div>
+                  <div className="text-xs text-slate-400">@{m.username || "thành viên"}</div>
                 </div>
-                <Badge tone="badge-in-progress">{m.role || "MEMBER"}</Badge>
+                <Badge tone="badge-in-progress">{roleLabel(m.role)}</Badge>
               </div>
             ))}
           </div>
@@ -568,7 +569,7 @@ export default function ProjectDetail() {
         <div className="space-y-4">
           <div className="p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
             <h3 className="font-bold text-base text-slate-900 dark:text-white mb-2">
-              Báo cáo tiến độ & Burndown dự án
+              Báo cáo tiến độ & công việc còn lại dự án
             </h3>
             <p className="text-xs text-slate-500 mb-4">
               Theo dõi sự thay đổi giữa tiến độ công việc thực tế và tiến độ quản lý ghi nhận
@@ -617,7 +618,7 @@ export default function ProjectDetail() {
               />
             </label>
 
-            <p className="text-sm text-slate-500">Task gốc chỉ do quản lý dự án tạo. Member thực hiện việc được giao; quyền sửa thông tin hoặc giao việc có thể cấp riêng tại Phân quyền dự án.</p>
+            <p className="text-sm text-slate-500">công việc gốc chỉ do quản lý dự án tạo. thành viên thực hiện việc được giao; quyền sửa thông tin hoặc giao việc có thể cấp riêng tại Phân quyền dự án.</p>
           </div>
 
           <button

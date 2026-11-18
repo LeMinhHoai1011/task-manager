@@ -116,7 +116,9 @@ export function ErrorAlert({ message, onRetry }: { message: string | null; onRet
   );
 }
 
-export function Spinner({ label = "Loading…" }: { label?: string }) {
+export function priorityLabel(priority?:string) { return ({LOW:"Thấp",MEDIUM:"Trung bình",HIGH:"Cao",URGENT:"Khẩn cấp",CRITICAL:"Rất khẩn cấp"} as Record<string,string>)[priority??""]??"Chưa đặt"; }
+
+export function Spinner({ label = "Đang tải…" }: { label?: string }) {
   return (
     <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-300" role="status" aria-live="polite">
       <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-primary" />

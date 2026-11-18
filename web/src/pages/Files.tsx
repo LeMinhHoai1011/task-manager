@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import type {TaskAccess} from "../auth/AccessContext";
 import { useSearchParams } from "react-router-dom";
-import { API_BASE, apiFetch, mutationOpts, newIdempotencyKey, unwrapData, unwrapList, unwrapPage } from "../api/client";
+import { API_BASE, apiFetch, mutationOpts, newIdempotencyKey, unwrapData, unwrapList } from "../api/client";
 import { t } from "../i18n";
-import { Button, Card, EmptyState, ErrorAlert, Select, Spinner, TextInput } from "../components/ui";
+import ResourcePicker from "../components/ResourcePicker";
+import {statusLabel} from "../i18n/labels";
+import { Button, Card, EmptyState, ErrorAlert, Select, Spinner } from "../components/ui";
 
 // PH-3: upload_session -> staging -> commit (version tăng, không ghi đè),
 // preview/download qua gateway + StreamTicket single-use TTL 30s.
@@ -14,7 +16,7 @@ interface Attachment {
   status?: string;
   version?: number;
 }
-interface TaskOption { id: string; title: string; }
+
 
 export default function Files({ taskId: taskIdProp }: { taskId?: string }) {
   const [access,setAccess]=useState<TaskAccess|null>(null);
@@ -29,8 +31,9 @@ export default function Files({ taskId: taskIdProp }: { taskId?: string }) {
   const [versions, setVersions] = useState<Array<{ version: number; note: string }>>([]);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [listLoading, setListLoading] = useState(false);
-  const [taskInput, setTaskInput] = useState(taskId);
-  const [tasks, setTasks] = useState<TaskOption[]>([]);
+  const [historyLoading,setHistoryLoading]=useState(false),[restoring,setRestoring]=useState(false);
+  const [historyError,setHistoryError]=useState("");
+  const historyRequest=useRef(0);
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function loadAttachments(tid: string) {
@@ -62,11 +65,13 @@ export default function Files({ taskId: taskIdProp }: { taskId?: string }) {
     return()=>{active=false;};
   }, [taskId]);
 
-  useEffect(() => {
-    apiFetch("/tasks", { query: { limit: 100, sort: "updated_at", order: "desc" } })
-      .then((r) => setTasks(unwrapPage<TaskOption>(r).items))
-      .catch(() => setTasks([]));
-  }, []);
+  useEffect(()=>{historyRequest.current++;setAttId("");setRestoreSrc("");setVersions([]);setHistoryError("");setHistoryLoading(false);setNotice(null);},[taskId]);
+  async function showHistory(id:string){
+    const request=++historyRequest.current;setAttId(id);setRestoreSrc("");setVersions([]);setHistoryError("");setHistoryLoading(true);
+    try{const r=await apiFetch(`/files/${id}/versions`);if(request===historyRequest.current)setVersions(unwrapList<{version:number;note:string}>(r));}
+    catch{if(request===historyRequest.current)setHistoryError("Không tải được lịch sử phiên bản. Hãy thử lại.");}
+    finally{if(request===historyRequest.current)setHistoryLoading(false);}
+  }
 
   async function upload(f: File) {
     if(!access?.files)return;
@@ -115,13 +120,13 @@ export default function Files({ taskId: taskIdProp }: { taskId?: string }) {
         {
           ...mutationOpts({ idempotencyKey: newIdempotencyKey() }),
           method: "POST",
-          body: { change_note: "web upload" },
+          body: { change_note: "Tải lên từ ứng dụng" },
         }
       );
       const d = unwrapData<{ attachment_id: string; version: number }>(done) ?? (done as { attachment_id: string; version: number });
-      setNotice(`${t("files.upload_ok")} ${d.attachment_id} v${d.version}.`);
+      setNotice(`${t("files.upload_ok")} Phiên bản ${d.version}.`);
       setAttId(d.attachment_id);
-      setVersions((v) => [...v, { version: d.version, note: "web upload" }]);
+      setVersions((v) => [...v, { version: d.version, note: "Tải lên từ ứng dụng" }]);
       setProgress(100);
       void loadAttachments(taskId);
     } catch (e: any) {
@@ -150,48 +155,34 @@ export default function Files({ taskId: taskIdProp }: { taskId?: string }) {
   }
 
   async function restoreVersion(id: string) {
-    if(!access?.files)return;
+    if(!access?.files||restoring)return;
     setErr(null);
-    if (!id.trim() || !restoreSrc.trim() || !Number.isInteger(Number(restoreSrc))) {
+    if (!id.trim() || !restoreSrc.trim() || !Number.isInteger(Number(restoreSrc)) || Number(restoreSrc)<1 || !versions.some(v=>v.version===Number(restoreSrc))) {
       setErr(t("form.invalid_number"));
       return;
     }
+    setRestoring(true);
     try {
       await apiFetch(`/files/${id.trim()}/restore`, {
         ...mutationOpts({ idempotencyKey: newIdempotencyKey() }),
         method: "POST",
-        body: { source_version: Number(restoreSrc), change_note: "web restore" },
+        body: { source_version: Number(restoreSrc), change_note: "Khôi phục từ ứng dụng" },
       });
-      setNotice(`${t("admin.done")} ${id.trim()}.`);
-      setVersions((v) => [...v, { version: Number(restoreSrc), note: "restored as new version" }]);
+      setNotice("Đã khôi phục thành phiên bản mới. Phiên bản cũ được giữ nguyên.");
+      await loadAttachments(taskId);
+      await showHistory(id);
     } catch (e: any) {
       setErr(e?.uiMessage ?? t("error.generic"));
-    }
+    } finally {setRestoring(false);}
   }
+
+  const selectedAttachment=attachments.find(a=>a.id===attId);
 
   return (
     <div className="mx-auto max-w-4xl">
       <h1 className="page-title">{t("nav.files")}</h1>
-      <div className="mt-3 flex flex-wrap gap-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3">
-        <Select
-          aria-label="Công việc"
-          value={taskInput}
-          onChange={(e) => setTaskInput(e.target.value)}
-        ><option value="">Chọn công việc để quản lý tệp</option>{tasks.map((task) => <option key={task.id} value={task.id}>{task.title}</option>)}</Select>
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() => {
-            if (!taskInput.trim()) {
-              setErr(t("files.task_required"));
-              return;
-            }
-            setParams(taskInput.trim() ? { taskId: taskInput.trim() } : {});
-          }}
-        >
-          {t("common.refresh")}
-        </Button>
-      </div>
+      <p className="page-subtitle">Chọn công việc để xem, tải lên và quản lý phiên bản tệp.</p>
+      <div className="mt-3"><ResourcePicker kind="tasks" label="Công việc" value={taskId} onChange={value=>setParams(value?{taskId:value}:{})}/></div>
       {!taskId && <p role="note" className="mt-2 text-sm text-slate-500">{t("files.task_required")}</p>}
       {taskId&&!access?.files&&<p role="note" className="card mt-3">Bạn chỉ xem/tải tệp trong phạm vi công việc được cấp quyền. Quản lý dự án được tải lên và khôi phục phiên bản khi công việc cho phép.</p>}
       <ErrorAlert message={err} />
@@ -209,8 +200,9 @@ export default function Files({ taskId: taskIdProp }: { taskId?: string }) {
         onClick={() => fileRef.current?.click()}
         role="button"
         tabIndex={0}
+        onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();fileRef.current?.click();}}}
       >
-        <p className="font-medium">Kéo & thả file vào đây, hoặc bấm để chọn</p>
+        <p className="font-medium">Kéo & thả tệp vào đây, hoặc bấm để chọn</p>
         <input
           ref={fileRef}
           type="file"
@@ -237,18 +229,18 @@ export default function Files({ taskId: taskIdProp }: { taskId?: string }) {
           <div className="mt-2"><EmptyState title={t("files.no_attachments")} /></div>
         ) : (
           <table className="table mt-2">
-            <thead><tr><th>{t("common.id")}</th><th>{t("common.name")}</th><th>{t("common.status")}</th><th>{t("files.version")}</th><th className="text-right">{t("common.actions")}</th></tr></thead>
+            <thead><tr><th>{t("common.name")}</th><th>{t("common.status")}</th><th>{t("files.version")}</th><th className="text-right">{t("common.actions")}</th></tr></thead>
             <tbody>
               {attachments.map((a) => (
                 <tr key={a.id}>
-                  <td className="font-mono text-xs">{a.id}</td>
                   <td>{a.file_name ?? "—"}</td>
-                  <td>{a.status ?? "—"}</td>
+                  <td>{statusLabel(a.status)}</td>
                   <td>v{a.version ?? "?"}</td>
                   <td>
                     <div className="flex justify-end gap-2">
                       <Button variant="secondary" size="sm" onClick={() => void ticket("preview", a.id)}>{t("files.preview")}</Button>
                       <Button variant="secondary" size="sm" onClick={() => void ticket("download", a.id)}>{t("common.download")}</Button>
+                      <Button variant="secondary" size="sm" onClick={()=>void showHistory(a.id)}>Lịch sử phiên bản</Button>
                     </div>
                   </td>
                 </tr>
@@ -257,35 +249,21 @@ export default function Files({ taskId: taskIdProp }: { taskId?: string }) {
           </table>
         )}
       </Card>
-      <Card className="mt-4">
-        {access?.files&&<div className="flex flex-wrap items-center gap-2">
-          <TextInput className="!w-56" placeholder="attachment id" aria-label="attachment id" value={attId} onChange={(e) => setAttId(e.target.value)} />
-          <TextInput className="!w-36" placeholder="source version" aria-label="source version" value={restoreSrc} onChange={(e) => setRestoreSrc(e.target.value)} />
-          <Button variant="secondary" size="sm" onClick={() => { if (attId) void restoreVersion(attId); }}>
-            Restore as new version
-          </Button>
-        </div>}
-        <p className="mt-2 text-xs text-slate-500">
-          Preview/download mở ticket 1 lần duy nhất (TTL 30s) qua gateway, không dùng URL
-          object-storage trực tiếp. {t("files.restore_note")}
-        </p>
-        <div className="row">
-          <Button variant="secondary" size="sm" onClick={() => void ticket("preview", attId)}>{t("files.preview")}</Button>
-          <Button variant="secondary" size="sm" onClick={() => void ticket("download", attId)}>{t("common.download")}</Button>
-        </div>
-      </Card>
-      <Card className="mt-4">
-        <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Phiên bản phát sinh trong phiên hiện tại</h2>
-        <table className="table mt-2">
-          <thead><tr><th>Version</th><th>Note</th></tr></thead>
-          <tbody>
-            {versions.map((v, i) => (
-              <tr key={i}><td>v{v.version}</td><td>{v.note}</td></tr>
-            ))}
-            {versions.length === 0 && <tr><td colSpan={2} className="text-slate-400">Chưa có thao tác phiên bản trong phiên này.</td></tr>}
-          </tbody>
-        </table>
-      </Card>
+      {attId&&<Card className="mt-4">
+        <h2 className="text-base font-semibold">Lịch sử phiên bản: {selectedAttachment?.file_name??"Tệp vừa tải lên"}</h2>
+        {historyLoading&&<p role="status">Đang tải phiên bản…</p>}
+        {historyError&&<ErrorAlert message={historyError} onRetry={()=>void showHistory(attId)}/>}
+        {!historyLoading&&!historyError&&versions.length===0&&<p>Chọn “Lịch sử phiên bản” tại tệp để xem các phiên bản đã lưu.</p>}
+        {versions.length>0&&<>
+          <ul className="my-3 space-y-2">{versions.map(v=><li key={v.version}>Phiên bản {v.version}{v.note?` · ${v.note}`:""}</li>)}</ul>
+          {access?.files&&<form onSubmit={e=>{e.preventDefault();void restoreVersion(attId);}} className="space-y-3">
+            <label>Phiên bản cần khôi phục<Select aria-label="Phiên bản cần khôi phục" required disabled={restoring||historyLoading} value={restoreSrc} onChange={e=>setRestoreSrc(e.target.value)}><option value="">Chọn phiên bản</option>{versions.map(v=><option key={v.version} value={v.version}>Phiên bản {v.version}</option>)}</Select></label>
+            <p className="text-sm">Khôi phục tạo một phiên bản mới và giữ nguyên tất cả phiên bản cũ.</p>
+            <Button disabled={!restoreSrc||restoring||historyLoading}>{restoring?"Đang khôi phục…":"Xác nhận khôi phục thành phiên bản mới"}</Button>
+          </form>}
+        </>}
+      </Card>}
+
     </div>
   );
 }

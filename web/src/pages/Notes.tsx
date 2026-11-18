@@ -1,3 +1,4 @@
+import SearchSelect from "../components/SearchSelect";
 import { useEffect, useState, useRef, useMemo } from "react";
 import { useBlocker, useSearchParams } from "react-router-dom";
 import { apiFetch } from "../api/client";
@@ -49,7 +50,7 @@ export default function Notes() {
   const [editPinned, setEditPinned] = useState(false);
   const [editProjectId, setEditProjectId] = useState<string>("");
 
-  const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([]);
+  const projects=access.projects;
 
   const activeNote = useMemo(
     () => notes.find((n) => n.id === selectedId) || null,
@@ -92,17 +93,8 @@ export default function Notes() {
     }
   };
 
-  const fetchProjects = async () => {
-    try {
-      const res = await apiFetch<any>(`/projects?limit=50`);
-      const items = (res?.items || res?.data?.items || res || []) as Array<{ id: string; name: string }>;
-      setProjects(items);
-    } catch {}
-  };
-
   useEffect(() => {
     fetchNotes();
-    fetchProjects();
   }, []);
 
   const notesRef=useRef(notes);notesRef.current=notes;
@@ -336,7 +328,7 @@ export default function Notes() {
             Lưu nội dung cần nhớ. Phân biệt rõ ghi chú riêng và thông tin chia sẻ trong dự án.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2"><select aria-label="Nơi tạo ghi chú" value={createProject} onChange={e=>setCreateProject(e.target.value)}><option value="">Cá nhân (riêng tư)</option>{access.projects.filter(p=>p.canManage).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select><button
+        <div className="flex flex-wrap gap-2"><SearchSelect label="Nơi tạo ghi chú" value={createProject} onChange={setCreateProject} placeholder="Cá nhân (riêng tư)" options={access.projects.filter(p=>p.canManage).map(p=>({id:p.id,name:p.name}))}/><button
           onClick={handleCreateNote}
           className="btn btn-primary shadow-xs hover:shadow-md transition flex items-center gap-2"
         >
@@ -363,7 +355,7 @@ export default function Notes() {
               />
               <input
                 type="text"
-                placeholder="Tìm ghi chú hoặc tags..."
+                placeholder="Tìm ghi chú hoặc nhãn..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="input pl-9 text-xs"
@@ -395,7 +387,7 @@ export default function Notes() {
             {/* Tag Pills */}
             {allTags.length > 0 && (
               <div className="flex items-center gap-1.5 overflow-x-auto text-xs pt-1">
-                <span className="text-slate-400 text-[11px]">Tags:</span>
+                <span className="text-slate-400 text-[11px]">Nhãn:</span>
                 {allTags.slice(0, 6).map((tag) => (
                   <button
                     key={tag}
@@ -530,10 +522,10 @@ export default function Notes() {
                     </button>
                     <button
                       disabled={!editable} onClick={() => insertMarkdown("- [ ] ")}
-                      title="Checklist công việc"
+                      title="danh sách kiểm tra công việc"
                       className="px-2 py-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 font-mono"
                     >
-                      ☑ Task
+                      ☑ công việc
                     </button>
                     <button
                       disabled={!editable} onClick={() => insertMarkdown("`", "`")}
@@ -635,7 +627,7 @@ export default function Notes() {
                     id="note-editor-textarea"
                     readOnly={!editable} value={editContent}
                     onChange={(e) => handleContentChange(editTitle, e.target.value)}
-                    placeholder="Bắt đầu viết ghi chú bằng Markdown... (# Tiêu đề, - Checklist, **in đậm**)"
+                    placeholder="Bắt đầu viết ghi chú bằng Markdown... (# Tiêu đề, - danh sách kiểm tra, **in đậm**)"
                     className="w-full h-full bg-transparent resize-none border-0 focus:outline-hidden text-sm leading-relaxed text-slate-800 dark:text-slate-200 placeholder-slate-400"
                   />
                 )}
@@ -712,7 +704,7 @@ export default function Notes() {
               </label>
               <input
                 type="text"
-                placeholder="idea, sprint, design..."
+                placeholder="ý tưởng, kế hoạch, thiết kế…"
                 disabled={!editable} value={editTags}
                 onChange={(e) => setEditTags(e.target.value)}
                 onBlur={() => handleMetadataChange({ tags: editTags })}

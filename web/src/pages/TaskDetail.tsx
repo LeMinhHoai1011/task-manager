@@ -2,13 +2,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { apiFetch, mutationOpts, newIdempotencyKey, unwrapData, unwrapList } from "../api/client";
 import type {TaskAccess} from "../auth/AccessContext";
+import ResourcePicker from "../components/ResourcePicker";
+import {activityLabel,formatDate} from "../i18n/labels";
 import {roleLabel} from "../auth/AccessContext";
 import WorkflowPanel from "./WorkflowPanel";
 import TaskResponsibility from "./TaskResponsibility";
 import ProjectTaskEditor from "../components/ProjectTaskEditor";
 import { t } from "../i18n";
 import { useRealtimeEvent } from "../realtime/RealtimeContext";
-import { Badge, Button, Card, EmptyState, ErrorAlert, Spinner, TextInput } from "../components/ui";
+import { Badge, Button, Card, EmptyState, ErrorAlert, Spinner, TextInput, stateLabel, priorityLabel } from "../components/ui";
 
 interface Task {
   id: string;
@@ -130,7 +132,7 @@ export default function TaskDetail() {
       .then((r) => setTimeline(unwrapList<TimelineItem>(r)))
       .catch(() => setTimeline([]));
   }, [id]);
-  async function tick(item:ChecklistItem,done:boolean){if(!task||task.version==null||tickBusy)return;setTickBusy(true);setFormErr(null);loadSequence.current++;setChecklist(rows=>rows.map(row=>row.id===item.id?{...row,done}:row));try{await apiFetch(`/tasks/${id}/checklist/${item.id}`,{method:"PATCH",ifMatch:String(task.version),body:{done}});await load();}catch(e:any){setChecklist(rows=>rows.map(row=>row.id===item.id?{...row,done:item.done}:row));setFormErr(e.uiMessage??"Không cập nhật được checklist");}finally{setTickBusy(false);}}
+  async function tick(item:ChecklistItem,done:boolean){if(!task||task.version==null||tickBusy)return;setTickBusy(true);setFormErr(null);loadSequence.current++;setChecklist(rows=>rows.map(row=>row.id===item.id?{...row,done}:row));try{await apiFetch(`/tasks/${id}/checklist/${item.id}`,{method:"PATCH",ifMatch:String(task.version),body:{done}});await load();}catch(e:any){setChecklist(rows=>rows.map(row=>row.id===item.id?{...row,done:item.done}:row));setFormErr(e.uiMessage??"Không cập nhật được danh sách kiểm tra");}finally{setTickBusy(false);}}
 
   useEffect(() => {
     void load();
@@ -289,16 +291,16 @@ export default function TaskDetail() {
     <div className="mx-auto max-w-6xl">
       <div className="flex flex-wrap items-center gap-2">
         <h1 className="page-title">{task.title}</h1>
-        {task.state && <Badge state={task.state}>{task.state}</Badge>}
-        {task.priority && <Badge priority={task.priority}>{task.priority}</Badge>}
+        {task.state && <Badge state={task.state}>{stateLabel(task.state)}</Badge>}
+        {task.priority && <Badge priority={task.priority}>{priorityLabel(task.priority)}</Badge>}
       </div>
       <p className="page-subtitle">
-        {t("task.assignee")}: {task.assignee_id ?? "-"}
-        {due ? ` · ${String(due).slice(0, 10)}` : ""}
-        {` · ${t("task.version")}: ${String(version)}`}
+        Người chịu trách nhiệm chính được hiển thị trong phần phân công.
+        {due ? ` · ${formatDate(String(due))}` : ""}
+
       </p>
       {task.description && <p className="mt-2 text-sm text-slate-600">{task.description}</p>}
-      <p className="card mt-3" role="note">Vai trò trong dự án: <strong>{roleLabel(access?.role)}</strong>. {access?.review?"Bạn quản lý việc, giao việc và xử lý kết quả chờ duyệt.":access?.execute?"Bạn thực hiện việc được giao: bắt đầu, tick checklist, ghi thời gian và nộp hoàn thành.":"Bạn đang xem công việc; không được thay đổi tiến trình."}</p>
+      <p className="card mt-3" role="note">Vai trò trong dự án: <strong>{roleLabel(access?.role)}</strong>. {access?.review?"Bạn quản lý việc, giao việc và xử lý kết quả chờ duyệt.":access?.execute?"Bạn thực hiện việc được giao: bắt đầu, đánh dấu danh sách kiểm tra, ghi thời gian và nộp hoàn thành.":"Bạn đang xem công việc; không được thay đổi tiến trình."}</p>
       {access?.metadata&&<ProjectTaskEditor id={String(id)} title={task.title} description={task.description} version={String(version)} dueAt={task.due_at} onChanged={()=>void load()}/>}
       <ErrorAlert message={formErr} />
       {formOk && (
@@ -315,7 +317,7 @@ export default function TaskDetail() {
               {subtasks.map((s) => (
                 <li key={s.id} className="flex items-center justify-between rounded-lg bg-slate-50 px-2.5 py-1.5 text-sm">
                   <Link to={`/tasks/${s.id}`} className="hover:underline">{s.title}</Link>
-                  <Badge state={s.state}>{s.state}</Badge>
+                  <Badge state={s.state}>{stateLabel(s.state)}</Badge>
                 </li>
               ))}
               {subtasks.length === 0 && <li className="text-sm text-slate-400">—</li>}
@@ -356,7 +358,7 @@ export default function TaskDetail() {
                 <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-lg">
                   <h3 className="text-base font-bold text-slate-900">{t("task.add_dependency")}</h3>
                   <div className="mt-3">
-                    <TextInput aria-label={t("task.depends_on_id")} placeholder={t("task.depends_on_id")} value={depId} onChange={(e) => setDepId(e.target.value)} />
+                    <ResourcePicker kind="tasks" label="Công việc cần hoàn thành trước" projectId={task.project_id} excludeId={id} value={depId} onChange={setDepId} required/>
                   </div>
                   <ErrorAlert message={depErr} />
                   <div className="mt-4 flex justify-end gap-2">
@@ -396,7 +398,7 @@ export default function TaskDetail() {
               </table>
             )}
             {access?.execute&&<div className="mt-2 flex flex-wrap gap-2">
-              <TextInput className="!w-36" aria-label={t("task.work_date")} placeholder="YYYY-MM-DD" value={tlDate} onChange={(e) => setTlDate(e.target.value)} />
+              <TextInput className="!w-36" aria-label={t("task.work_date")} type="date" value={tlDate} onChange={(e) => setTlDate(e.target.value)} />
               <TextInput className="!w-24" aria-label={t("task.minutes")} placeholder="60" inputMode="numeric" value={tlMinutes} onChange={(e) => setTlMinutes(e.target.value)} />
               <TextInput className="!w-44" aria-label={t("task.note")} placeholder={t("task.note")} value={tlNote} onChange={(e) => setTlNote(e.target.value)} />
               <Button variant="secondary" size="sm" onClick={() => void createTimelog()}>
@@ -430,6 +432,7 @@ export default function TaskDetail() {
         </div>
         <div className="flex flex-col gap-4">
           <WorkflowPanel disabled={tickBusy} taskId={String(id)} version={String(version)} role={access?.role} allowedActions={access?.workflowActions??[]} state={task.state} onDone={() => void load()} />
+          <div className="card flex flex-wrap gap-3"><Link to={`/files?taskId=${id}`} className="btn btn-secondary">Tệp đính kèm</Link><Link to={`/calendar?taskId=${id}`} className="btn btn-secondary">Đặt nhắc việc</Link></div>
           <TaskResponsibility canAssign={!!access?.assignment} id={String(id)} version={String(version)} onChanged={() => void load()} />
           <Card>
             <h2 className="text-sm font-semibold text-slate-900">{t("task.timeline")}</h2>
@@ -441,13 +444,12 @@ export default function TaskDetail() {
                   <li key={ev.id} className="flex gap-2 text-xs text-slate-600">
                     <span className="timeline-dot" />
                     <div className="rounded bg-slate-50 px-2 py-1">
-                      <span className="font-semibold text-slate-800">{ev.kind}</span>
+                      <span className="font-semibold text-slate-800">{activityLabel(ev.kind)}</span>
+                      {ev.payload&&!ev.redacted&&<details><summary>Chi tiết sự kiện</summary><pre className="whitespace-pre-wrap break-all">{ev.payload}</pre></details>}
                       {ev.redacted && (
                         <span className="ml-1.5 rounded bg-slate-200 px-1 text-slate-500">{t("task.redacted")}</span>
                       )}
-                      {ev.payload && !ev.redacted && (
-                        <span className="mt-0.5 block break-all text-slate-500">{ev.payload}</span>
-                      )}
+
                     </div>
                   </li>
                 ))}

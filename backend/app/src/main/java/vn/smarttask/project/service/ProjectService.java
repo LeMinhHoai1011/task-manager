@@ -255,6 +255,20 @@ public class ProjectService {
     return members.findByProjectId(projectId);
   }
 
+  public record MemberDetails(UUID userId, String role, String displayName, String username) {}
+
+  @Transactional(readOnly = true, timeout = 15)
+  public List<MemberDetails> listMemberDetails(UUID actorId, UUID projectId) {
+    var memberships = listMembers(actorId, projectId);
+    var profiles = users.findAllById(memberships.stream().map(ProjectMembership::getUserId).toList())
+        .stream().collect(java.util.stream.Collectors.toMap(AppUser::getId, u -> u));
+    return memberships.stream().map(m -> {
+      var user = profiles.get(m.getUserId());
+      return new MemberDetails(m.getUserId(), m.getRole(),
+          user == null ? null : user.getDisplayName(), user == null ? null : user.getUsername());
+    }).toList();
+  }
+
   @Transactional(readOnly = true, timeout = 15)
   public Project get(UUID actorId, UUID projectId) {
     members.findMembership(projectId, actorId)

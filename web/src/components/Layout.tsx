@@ -146,7 +146,7 @@ export default function Layout({ children }: { children: ReactNode }) {
           {link("/reports", t("nav.reports"), "report")}
           {managesProjects&&link("/roles", "Phân quyền dự án", "roles")}
         </>}
-        {managesWorkspace&&<p className="nav-group-label">Quản lý Workspace</p>}
+        {managesWorkspace&&<p className="nav-group-label">Quản lý không gian làm việc</p>}
         {link("/workspaces",managesWorkspace?"Thành viên và không gian":"Không gian làm việc","workspace")}
 
         {/* NHÓM 3: QUẢN TRỊ (Admin) */}

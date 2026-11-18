@@ -1,3 +1,5 @@
+import {formatDate} from "../i18n/labels";
+import {priorityLabel} from "../components/ui";
 import { useEffect, useState, useRef, useMemo } from "react";
 import { apiFetch } from "../api/client";
 import PersonalChecklist from "./PersonalChecklist";
@@ -205,7 +207,7 @@ export default function MyTasks() {
             <span>Việc của tôi</span>
           </h1>
           <p className="page-subtitle text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Không gian quản lý công việc, kế hoạch cá nhân, ghi chú và checklist riêng tư.
+            Không gian quản lý công việc, kế hoạch cá nhân, ghi chú và danh sách kiểm tra riêng tư.
           </p>
         </div>
 
@@ -226,7 +228,7 @@ export default function MyTasks() {
               className={`flex items-center gap-1.5 ${viewMode === "kanban" ? "segmented-active" : ""}`}
             >
               <AppIcon name="kanban" size={15} />
-              <span className="hidden sm:inline">Bảng Kanban</span>
+              <span className="hidden sm:inline">Bảng bảng tiến độ</span>
             </button>
             <button
               type="button"
@@ -501,7 +503,7 @@ export default function MyTasks() {
 
       {/* VIEW MODE 2: KANBAN BOARD */}
       {viewMode === "kanban" && items.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4" aria-label="Bảng Kanban cá nhân">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4" aria-label="Bảng bảng tiến độ cá nhân">
           {(
             [
               { key: "TODO", title: "Cần làm", items: kanbanGroups.TODO, badge: "badge-todo" },
@@ -555,9 +557,9 @@ export default function MyTasks() {
 
                       <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400">
                         <span className={`priority-dot priority-${task.priority?.toLowerCase()}`}>
-                          {task.priority}
+                          {priorityLabel(task.priority)}
                         </span>
-                        {task.dueAt && <span>📅 {task.dueAt.slice(0, 10)}</span>}
+                        {task.dueAt && <span>📅 {formatDate(task.dueAt)}</span>}
                       </div>
 
                       <div className="mt-2.5 pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
@@ -610,7 +612,7 @@ export default function MyTasks() {
                 >
                   <div className="flex items-center gap-3">
                     <span className="font-bold text-blue-600 dark:text-blue-400 min-w-[80px]">
-                      {task.dueAt ? task.dueAt.slice(0, 10) : "Chưa đặt"}
+                      {task.dueAt ? formatDate(task.dueAt) : "Chưa đặt"}
                     </span>
                     <span className="font-semibold text-slate-800 dark:text-white">{task.title}</span>
                   </div>
@@ -636,10 +638,10 @@ export default function MyTasks() {
             Chia nhỏ để dễ hoàn thành
           </h2>
           <p className="page-subtitle text-xs text-slate-500">
-            Chọn một công việc để quản lý checklist và ghi chú chi tiết.
+            Chọn một công việc để quản lý danh sách kiểm tra và ghi chú chi tiết.
           </p>
           <label className="block mt-3 text-xs text-slate-600 dark:text-slate-400">
-            Checklist của công việc
+            danh sách kiểm tra của công việc
             <select
               className="select text-xs mt-1 w-full max-w-md"
               value={detailId ?? ""}

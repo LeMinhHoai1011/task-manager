@@ -46,3 +46,13 @@ test("employee toolbar offers execution actions without management actions",()=>
   expect(screen.queryByRole("option",{name:"Thêm người thực hiện"})).not.toBeInTheDocument();
   expect(screen.queryByRole("option",{name:"Xóa mềm"})).not.toBeInTheDocument();
 });
+
+test("đổi danh sách đã chọn vẫn có mức ưu tiên mặc định rõ ràng",()=>{
+  const props={onComplete:()=>{},onClear:()=>{},onBusyChange:()=>{}};
+  const view=render(<TaskBatchToolbar selected={selected} {...props}/>);
+  fireEvent.change(screen.getByLabelText("Thao tác hàng loạt"),{target:{value:"PRIORITY"}});
+  expect(screen.getByLabelText("Ưu tiên hàng loạt")).toHaveValue("MEDIUM");
+  view.rerender(<TaskBatchToolbar selected={selected.slice(0,1)} {...props}/>);
+  expect(screen.getByLabelText("Ưu tiên hàng loạt")).toHaveValue("MEDIUM");
+  expect(screen.getByRole("button",{name:"Áp dụng"})).toBeEnabled();
+});

@@ -104,7 +104,7 @@ export function RequireAuth({ children }: { children: ReactNode }) {
 export function RequireAdmin({ children }: { children: ReactNode }) {
   const access=useAccess();
   if(access.loading)return <p role="status">Đang kiểm tra quyền hệ thống…</p>;
-  if(!access.systemAdmin)return <p role="alert">Bạn không có quyền quản trị hệ thống. Owner/Admin Workspace chỉ quản lý phạm vi Workspace được giao.</p>;
+  if(!access.systemAdmin)return <p role="alert">Bạn không có quyền quản trị hệ thống. chủ sở hữu/quản trị viên không gian làm việc chỉ quản lý phạm vi không gian làm việc được giao.</p>;
   return <>{children}</>;
 }
 

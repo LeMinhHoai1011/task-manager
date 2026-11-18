@@ -1,3 +1,4 @@
+import {formatDate} from "../i18n/labels";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { apiFetch, unwrapPage, unwrapData, mutationOpts, newIdempotencyKey } from "../api/client";
@@ -5,7 +6,11 @@ import { t } from "../i18n";
 import { useRealtimeEvent } from "../realtime/RealtimeContext";
 import {useAccess} from "../auth/AccessContext";
 import CreateProjectTask from "../components/CreateProjectTask";
-import { Badge, Button, Card, EmptyState, ErrorAlert, Select, Spinner, TextInput, stateLabel } from "../components/ui";
+import FilterBar from "../components/FilterBar";
+import ResourcePicker from "../components/ResourcePicker";
+import MemberPicker from "../components/MemberPicker";
+import {useAuth} from "../auth/AuthContext";
+import { Badge, Button, Card, EmptyState, ErrorAlert, Select, Spinner, TextInput, stateLabel, priorityLabel } from "../components/ui";
 import AppIcon from "../components/AppIcon";
 import TaskBatchToolbar, {type BatchSelection,type BatchAction} from "../components/TaskBatchToolbar";
 
@@ -36,32 +41,7 @@ export default function Tasks() {
   const [priority, setPriority] = useState("");
   const [project, setProject] = useState(() => params.get("project") ?? params.get("project_id") ?? "");
   const [assignee, setAssignee] = useState("");
-  const [assigneeDraft, setAssigneeDraft] = useState("");
-  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
-  const [projectCursor, setProjectCursor] = useState<string | null>(null);
-  const [projectError, setProjectError] = useState("");
-  const [projectLoading, setProjectLoading] = useState(false);
-
-  async function loadProjects(cursor?: string | null) {
-    setProjectLoading(true);
-    setProjectError("");
-    try {
-      const page = unwrapPage<{ id: string; name: string }>(
-        await apiFetch("/projects", { query: { limit: 20, cursor: cursor ?? undefined } })
-      );
-      setProjects((old) => (cursor ? [...old, ...page.items] : page.items));
-      setProjectCursor(page.nextCursor);
-    } catch {
-      setProjectError("Không tải được bộ chọn dự án.");
-    } finally {
-      setProjectLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    void loadProjects();
-  }, []);
-
+  const {user}=useAuth();
   const [tag, setTag] = useState("");
   const [blocked, setBlocked] = useState("");
   const [depth, setDepth] = useState("");
@@ -98,6 +78,18 @@ export default function Tasks() {
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
 
   // Quick detail drawer
+  const resetFilters=()=>{setState("");setPriority("");setProject("");setAssignee("");setTag("");setBlocked("");setDepth("");setOverdue("");setSort("created_at");setOrder("desc");};
+  const filters=[
+    ...(project?[{key:"project",label:`Dự án: ${access.projects.find(p=>p.id===project)?.name??"Đang chọn"}`,onRemove:()=>{setProject("");setAssignee("");}}]:[]),
+    ...(state?[{key:"state",label:`Trạng thái: ${stateLabel(state)}`,onRemove:()=>setState("")}]:[]),
+    ...(assignee?[{key:"assignee",label:assignee===user?.id?"Giao cho tôi":"Người phụ trách đã chọn",onRemove:()=>setAssignee("")}]:[]),
+    ...(priority?[{key:"priority",label:`Ưu tiên: ${priorityLabel(priority)}`,onRemove:()=>setPriority("")}]:[]),
+    ...(tag?[{key:"tag",label:`Nhãn: ${tag}`,onRemove:()=>setTag("")}]:[]),
+    ...(blocked?[{key:"blocked",label:blocked==="true"?"Có trở ngại":"Không có trở ngại",onRemove:()=>setBlocked("")}]:[]),
+    ...(depth?[{key:"depth",label:depth==="0"?"Việc chính":"Việc con",onRemove:()=>setDepth("")}]:[]),
+    ...(overdue?[{key:"overdue",label:overdue==="true"?"Đã quá hạn":"Chưa quá hạn",onRemove:()=>setOverdue("")}]:[]),
+    ...(sort!=="created_at"||order!=="desc"?[{key:"sort",label:"Sắp xếp tùy chọn",onRemove:()=>{setSort("created_at");setOrder("desc");}}]:[]),
+  ];
   const [quickDetailTask, setQuickDetailTask] = useState<TaskRow | null>(null);
 
   async function moveTask(id: string, target: string) {
@@ -171,7 +163,7 @@ export default function Tasks() {
         setItems((prev) => (c ? [...prev, ...page.items] : page.items));
         setNextCursor(page.nextCursor);
       } catch (e: any) {
-        setErr(e?.uiMessage ?? "Error");
+        setErr(e?.uiMessage ?? "Không tải được công việc. Hãy thử lại.");
       } finally {
         setLoading(false);
       }
@@ -215,7 +207,7 @@ export default function Tasks() {
             className={view === "kanban" ? "segmented-active" : ""}
             onClick={() => setView("kanban")}
           >
-            Kanban
+            Bảng tiến độ
           </button>
           <button
             className={view === "calendar" ? "segmented-active" : ""}
@@ -226,157 +218,26 @@ export default function Tasks() {
         </div>
       </div>
 
-      {/* Filter Toolbar */}
-      <div className="toolbar-sticky filters rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3.5 shadow-xs flex flex-wrap gap-2.5 items-center">
-        <Select
-          aria-label="Lọc ưu tiên"
-          value={priority}
-          onChange={(e) => setPriority(e.target.value)}
-        >
-          <option value="">Mọi độ ưu tiên</option>
-          {["URGENT", "HIGH", "MEDIUM", "LOW"].map((p) => (
-            <option key={p} value={p}>
-              {
-                (
-                  {
-                    URGENT: "Khẩn cấp",
-                    HIGH: "Cao",
-                    MEDIUM: "Trung bình",
-                    LOW: "Thấp",
-                  } as Record<string, string>
-                )[p]
-              }
-            </option>
-          ))}
-        </Select>
-
-        <Select
-          aria-label={t("tasks.filter_state")}
-          value={state}
-          onChange={(e) => setState(e.target.value)}
-        >
-          <option value="">{`${t("tasks.filter_state")}: ${t("common.all")}`}</option>
-          {STATE_OPTIONS.map((s) => (
-            <option key={s} value={s}>
-              {stateLabel(s)}
-            </option>
-          ))}
-        </Select>
-
-        <Select
-          aria-label={t("tasks.filter_project")}
-          value={project}
-          disabled={projectLoading}
-          onChange={(e) => setProject(e.target.value)}
-        >
-          <option value="">Tất cả dự án</option>
-          {project && !projects.some((p) => p.id === project) && (
-            <option value={project}>Dự án đang chọn</option>
-          )}
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </Select>
-        {projectCursor && (
-          <Button
-            variant="ghost"
-            disabled={projectLoading}
-            onClick={() => void loadProjects(projectCursor)}
-          >
-            Tải thêm dự án
-          </Button>
-        )}
-        {projectError && (
-          <button onClick={() => void loadProjects()} className="text-xs text-primary">
-            {projectError} Thử lại
-          </button>
-        )}
-
-        <form
-          className="assignee-filter flex items-center gap-1.5"
-          onSubmit={(e) => {
-            e.preventDefault();
-            setAssignee(assigneeDraft.trim());
-          }}
-        >
-          <TextInput
-            className="!w-44"
-            placeholder="ID người phụ trách"
-            title="Nhập UUID người phụ trách hoặc để trống để bỏ lọc"
-            aria-label={t("tasks.filter_assignee")}
-            pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
-            value={assigneeDraft}
-            onChange={(e) => setAssigneeDraft(e.target.value)}
-          />
-          <Button variant="secondary" type="submit">
-            Lọc người phụ trách
-          </Button>
-        </form>
-
-        <TextInput
-          className="!w-28"
-          placeholder={t("tasks.filter_tag")}
-          aria-label={t("tasks.filter_tag")}
-          value={tag}
-          onChange={(e) => setTag(e.target.value)}
-        />
-
-        <Select
-          aria-label={t("tasks.filter_blocked")}
-          value={blocked}
-          onChange={(e) => setBlocked(e.target.value)}
-        >
-          <option value="">{`${t("tasks.filter_blocked")} ${t("common.all")}`}</option>
-          <option value="true">{t("common.yes")}</option>
-          <option value="false">{t("common.no")}</option>
-        </Select>
-
-        <Select
-          aria-label={t("tasks.filter_depth")}
-          value={depth}
-          onChange={(e) => setDepth(e.target.value)}
-        >
-          <option value="">{`${t("tasks.filter_depth")}: ${t("common.all")}`}</option>
-          <option value="0">{t("tasks.filter_depth_top")}</option>
-          <option value="1">{t("tasks.filter_depth_sub")}</option>
-        </Select>
-
-        <Select
-          aria-label={t("tasks.filter_overdue")}
-          value={overdue}
-          onChange={(e) => setOverdue(e.target.value)}
-        >
-          <option value="">{`${t("tasks.filter_overdue")} ${t("common.all")}`}</option>
-          <option value="true">{t("common.yes")}</option>
-          <option value="false">{t("common.no")}</option>
-        </Select>
-
-        <Select value={sort} onChange={(e) => setSort(e.target.value as SortKey)}>
-          {SORT_ALLOW.map((s) => (
-            <option key={s} value={s}>
-              {
-                (
-                  {
-                    created_at: "Ngày tạo",
-                    updated_at: "Cập nhật gần đây",
-                    due_at: "Hạn hoàn thành",
-                    priority: "Độ ưu tiên",
-                  } as Record<string, string>
-                )[s]
-              }
-            </option>
-          ))}
-        </Select>
-
-        <Select value={order} onChange={(e) => setOrder(e.target.value as "asc" | "desc")}>
-          <option value="asc">Tăng dần</option>
-          <option value="desc">Giảm dần</option>
-        </Select>
+      <div className="quick-filters" aria-label="Lọc nhanh">
+        <Button variant={assignee===user?.id&&!!assignee?"primary":"secondary"} disabled={!user?.id} onClick={()=>setAssignee(assignee===user?.id?"":user?.id??"")}>Giao cho tôi</Button>
+        <Button variant={overdue==="true"?"primary":"secondary"} onClick={()=>setOverdue(overdue==="true"?"":"true")}>Quá hạn</Button>
+        <Button variant={state==="PENDING_APPROVAL"?"primary":"secondary"} onClick={()=>setState(state==="PENDING_APPROVAL"?"":"PENDING_APPROVAL")}>Chờ duyệt</Button>
       </div>
+      <FilterBar activeFilters={filters} onReset={resetFilters} busy={loading} resultLabel={`Đã tải ${items.length} công việc${nextCursor?" · Còn kết quả ở trang sau":""}`} advanced={<>
+        <label>Ưu tiên<Select aria-label="Lọc ưu tiên" value={priority} onChange={e=>setPriority(e.target.value)}><option value="">Mọi độ ưu tiên</option>{["URGENT","HIGH","MEDIUM","LOW"].map(p=><option key={p} value={p}>{priorityLabel(p)}</option>)}</Select></label>
+        <label>Nhãn<TextInput aria-label={t("tasks.filter_tag")} value={tag} onChange={e=>setTag(e.target.value)}/></label>
+        <label>Trở ngại<Select aria-label={t("tasks.filter_blocked")} value={blocked} onChange={e=>setBlocked(e.target.value)}><option value="">Tất cả</option><option value="true">Có trở ngại</option><option value="false">Không có trở ngại</option></Select></label>
+        <label>Loại công việc<Select aria-label={t("tasks.filter_depth")} value={depth} onChange={e=>setDepth(e.target.value)}><option value="">Tất cả</option><option value="0">Việc chính</option><option value="1">Việc con</option></Select></label>
+        <label>Thời hạn<Select aria-label={t("tasks.filter_overdue")} value={overdue} onChange={e=>setOverdue(e.target.value)}><option value="">Tất cả</option><option value="true">Đã quá hạn</option><option value="false">Chưa quá hạn</option></Select></label>
+        <label>Sắp xếp theo<Select aria-label="Sắp xếp theo" value={sort} onChange={e=>setSort(e.target.value as SortKey)}>{SORT_ALLOW.map(s=><option key={s} value={s}>{{created_at:"Ngày tạo",updated_at:"Cập nhật gần đây",due_at:"Hạn hoàn thành",priority:"Độ ưu tiên"}[s]}</option>)}</Select></label>
+        <label>Thứ tự<Select aria-label="Thứ tự sắp xếp" value={order} onChange={e=>setOrder(e.target.value as "asc"|"desc")}><option value="asc">Tăng dần</option><option value="desc">Giảm dần</option></Select></label>
+      </>}>
+        <ResourcePicker kind="projects" label="Dự án" value={project} onChange={value=>{setProject(value);setAssignee("");}} selectedName={access.projects.find(p=>p.id===project)?.name}/>
+        <label className="filter-field">Trạng thái<Select aria-label={t("tasks.filter_state")} value={state} onChange={e=>setState(e.target.value)}><option value="">Tất cả trạng thái</option>{STATE_OPTIONS.map(s=><option key={s} value={s}>{stateLabel(s)}</option>)}</Select></label>
+        <MemberPicker projectIds={project?[project]:access.projects.map(p=>p.id)} label="Người phụ trách" value={assignee} onChange={setAssignee}/>
+      </FilterBar>
 
-      {(project?access.projects.some(p=>p.id===project&&p.canCreateTask):access.projects.some(p=>p.canCreateTask))&&<CreateProjectTask projectId={project||undefined} projectName={projects.find(p=>p.id===project)?.name} initialOpen={params.get("create")==="1"} onCreated={() => void load(null)} />}
+      {(project?access.projects.some(p=>p.id===project&&p.canCreateTask):access.projects.some(p=>p.canCreateTask))&&<CreateProjectTask projectId={project||undefined} projectName={access.projects.find(p=>p.id===project)?.name} initialOpen={params.get("create")==="1"} onCreated={() => void load(null)} />}
 
       {err && items.length > 0 && <ErrorAlert message={err} />}
 
@@ -439,7 +300,7 @@ export default function Tasks() {
                       <Badge state={it.state}>{stateLabel(it.state)}</Badge>
                     </td>
                     <td className="p-3.5 text-slate-600 dark:text-slate-400">
-                      {due ? String(due).slice(0, 10) : "—"}
+                      {due ? formatDate(String(due)) : "—"}
                     </td>
                     <td className="p-3.5">
                       {blockedTask ? (
@@ -478,7 +339,7 @@ export default function Tasks() {
         </Card>
       ) : (
         /* Kanban Board View Mode */
-        <div className="kanban-board" aria-label="Bảng Kanban">
+        <div className="kanban-board" aria-label="Bảng tiến độ">
           {Object.entries(grouped).map(([st, rows]) => (
             <Card
               key={st}
@@ -542,7 +403,7 @@ export default function Tasks() {
                           <Badge state={it.state}>{stateLabel(it.state)}</Badge>
                           {it.priority && (
                             <span className={`badge-state text-[10px] ${it.priority === "URGENT" || it.priority === "HIGH" ? "badge-blocked" : "badge-todo"}`}>
-                              {it.priority}
+                              {priorityLabel(it.priority)}
                             </span>
                           )}
                           {isBlocked && (
@@ -550,7 +411,7 @@ export default function Tasks() {
                           )}
                           {due && (
                             <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                              📅 {String(due).slice(0, 10)}
+                              📅 {formatDate(String(due))}
                             </span>
                           )}
                         </div>
@@ -629,7 +490,7 @@ export default function Tasks() {
                   </Badge>
                   {quickDetailTask.priority && (
                     <Badge tone="badge-in-progress">
-                      {quickDetailTask.priority}
+                      {priorityLabel(quickDetailTask.priority)}
                     </Badge>
                   )}
                 </div>
@@ -649,11 +510,11 @@ export default function Tasks() {
                   Hạn chót:{" "}
                   <span className="font-semibold text-slate-800 dark:text-slate-200">
                     {quickDetailTask.due_at || quickDetailTask.deadline
-                      ? String(quickDetailTask.due_at || quickDetailTask.deadline).slice(0, 10)
+                      ? formatDate(quickDetailTask.due_at||quickDetailTask.deadline)
                       : "Chưa đặt"}
                   </span>
                 </div>
-                <div>Phiên bản: #{quickDetailTask.version ?? 1}</div>
+
               </div>
             </div>
 

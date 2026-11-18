@@ -17,7 +17,7 @@ describe("Login error", () => {
     fireEvent.change(container.querySelector('input[autocomplete="username"]')!, {target: {value: "tester"}});
     fireEvent.change(container.querySelector('input[type="password"]')!, {target: {value: "test-password"}});
     fireEvent.submit(container.querySelector("form")!);
-    expect(await screen.findByRole("alert")).toHaveTextContent("Incorrect username/email or password");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Tên đăng nhập/email hoặc mật khẩu không đúng");
     expect(screen.getByRole("alert")).not.toHaveTextContent("Session expired");
     localStorage.removeItem("tm.locale");
   });

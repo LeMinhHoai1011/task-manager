@@ -31,27 +31,42 @@ public class TaskResponsibilityService {
     this.policy=policy; this.audit=audit; this.outbox=outbox; this.activity=activity;this.jdbc=jdbc;
   }
   private boolean eligibleTeam(UUID taskId,UUID userId) {
-    return Boolean.TRUE.equals(jdbc.queryForObject("select not exists(select 1 from task_team tt where tt.task_id=? and not exists(select 1 from team_member tm where tm.team_id=tt.team_id and tm.user_id=? and tm.status='ACTIVE' and tm.role in ('MEMBER','MANAGER')))",Boolean.class,taskId,userId));
+    return eligibleTeam(taskId,userId,true);
   }
-  public record Result(UUID taskId, UUID primaryUserId, int version) {}
-  public record Candidate(UUID userId, String displayName) {}
+  private boolean eligibleTeam(UUID taskId,UUID userId,boolean primary) {
+    String executorRole = primary ? " and tm.role in ('MEMBER','MANAGER')" : "";
+    return Boolean.TRUE.equals(jdbc.queryForObject("select not exists(select 1 from task_team tt where tt.task_id=? and not exists(select 1 from team_member tm where tm.team_id=tt.team_id and tm.user_id=? and tm.status='ACTIVE'"+executorRole+"))",Boolean.class,taskId,userId));
+  }
+  public record Result(UUID taskId, UUID primaryUserId, int version, String primaryDisplayName) {
+    public Result(UUID taskId, UUID primaryUserId, int version) { this(taskId, primaryUserId, version, null); }
+  }
+  public record Candidate(UUID userId, String displayName, String username) {}
   @Transactional(readOnly=true)
   public Result current(UUID actor, UUID id) {
     policy.requireTaskRead(actor,id);
     var task=tasks.findById(id).orElseThrow(() -> AppException.notFound("Task not found"));
     UUID primary=assignments.findByTaskIdAndStatus(id,"ACTIVE").stream().filter(TaskAssignment::isPrimary)
         .map(TaskAssignment::getUserId).findFirst().orElse(null);
-    return new Result(id,primary,task.getVersion());
+    String name = primary == null ? null : users.findById(primary)
+        .map(u -> u.getDisplayName() == null ? u.getUsername() : u.getDisplayName()).orElse(null);
+    return new Result(id,primary,task.getVersion(),name);
   }
   @Transactional(readOnly=true)
   public java.util.List<Candidate> candidates(UUID actor,UUID id) {
+    return candidates(actor,id,true);
+  }
+  @Transactional(readOnly=true)
+  public java.util.List<Candidate> collaborators(UUID actor,UUID id) {
+    return candidates(actor,id,false);
+  }
+  private java.util.List<Candidate> candidates(UUID actor,UUID id,boolean primary) {
     policy.requireTaskManagerWrite(actor,id,"task.assign","task:write");
     var task=tasks.findById(id).orElseThrow(() -> AppException.notFound("Task not found"));
     return members.findByProjectId(task.getProjectId()).stream()
-        .filter(m -> "ACTIVE".equals(m.getStatus()) && java.util.Set.of("MEMBER","MANAGER","OWNER","ADMIN").contains(m.getRole()))
+        .filter(m -> "ACTIVE".equals(m.getStatus()) && (!primary || java.util.Set.of("MEMBER","MANAGER","OWNER","ADMIN").contains(m.getRole())))
         .map(m -> users.findById(m.getUserId()).filter(u -> u.isActive() && "ACTIVE".equals(u.getStatus()))
-            .map(u -> new Candidate(u.getId(),u.getDisplayName())).orElse(null))
-        .filter(java.util.Objects::nonNull).filter(c -> eligibleTeam(id,c.userId())).toList();
+            .map(u -> new Candidate(u.getId(),u.getDisplayName(),u.getUsername())).orElse(null))
+        .filter(java.util.Objects::nonNull).filter(c -> eligibleTeam(id,c.userId(),primary)).toList();
   }
   @Transactional
   public Result transfer(UUID actor, UUID id, UUID target, long expected) {

@@ -38,4 +38,4 @@ export function AccessProvider({children}:{children:ReactNode}){
   return <Context.Provider value={{...(awaitingIdentity?empty:value),loading:loading||awaitingIdentity,error,reload}}>{children}</Context.Provider>;
 }
 export const useAccess=()=>useContext(Context);
-export const roleLabel=(role?:string)=>({OWNER:"Chủ sở hữu",ADMIN:"Quản trị Workspace",MANAGER:"Quản lý dự án",MEMBER:"Thành viên",GUEST:"Khách chỉ đọc",VIEWER:"Người xem"}[role??""]??"Chưa có quyền");
+export const roleLabel=(role?:string)=>({OWNER:"Chủ sở hữu",ADMIN:"Quản trị không gian làm việc",MANAGER:"Quản lý dự án",MEMBER:"Thành viên",GUEST:"Khách chỉ đọc",VIEWER:"Người xem"}[role??""]??"Chưa có quyền");

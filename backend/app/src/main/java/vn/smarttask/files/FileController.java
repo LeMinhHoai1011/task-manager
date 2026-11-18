@@ -231,6 +231,16 @@ public class FileController {
     return ResponseEntity.ok(ApiResult.ok(Map.of("items", items), "file.list.success"));
   }
 
+  @GetMapping("/{id}/versions")
+  @RequiresPermission("file:read")
+  public ResponseEntity<ApiResult<java.util.List<FileService.VersionInfo>>> versions(@PathVariable UUID id) {
+    var att = attachments.findById(id)
+        .filter(a -> a.getDeletedAt() == null)
+        .orElseThrow(() -> AppException.notFound("Attachment not found"));
+    requireRead(att.getTaskId(), CurrentActor.userId(), "file.versions");
+    return ResponseEntity.ok(ApiResult.ok(files.history(id), "file.versions.success"));
+  }
+
   private StreamTicketDto mintTicket(UUID attachmentId, UUID actor, String action) {    var att = attachments.findById(attachmentId)
         .orElseThrow(() -> AppException.notFound("Attachment not found"));
     if (att.getDeletedAt() != null) throw AppException.notFound("Attachment not found");

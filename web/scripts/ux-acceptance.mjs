@@ -1,0 +1,123 @@
+import {chromium} from '../../.tools/browser/node_modules/playwright/index.mjs';
+import {mkdir,writeFile} from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import {fileURLToPath} from 'node:url';
+
+// Dữ liệu hoàn toàn giả lập, không đăng nhập hoặc ghi vào máy chủ thật.
+const base=process.env.SMARTTASK_UX_BASE??'http://127.0.0.1:5182';
+const output=new URL('../../docs/ux-2026-11-18/',import.meta.url);
+await mkdir(output,{recursive:true});
+const project='00000000-0000-4000-8000-000000000001',workspace='00000000-0000-4000-8000-000000000002';
+const task='00000000-0000-4000-8000-000000000003',user='00000000-0000-4000-8000-000000000004';
+const other='00000000-0000-4000-8000-000000000005';
+const projectRow={id:project,name:'Website khách hàng',workspace_id:workspace,status:'ACTIVE'};
+const projectAccess={...projectRow,role:'MANAGER',canManage:true,canCreateTask:true,canLogProgress:true,metadata:true,assignment:true};
+const taskRows=[{id:task,title:'Hoàn thiện trang đăng nhập',project_id:project,state:'IN_PROGRESS',priority:'HIGH',version:3,due_at:'2026-11-20T10:00:00+07:00'},
+  {id:other,title:'Kiểm tra giao diện điện thoại',project_id:project,state:'TODO',priority:'MEDIUM',version:2}];
+const members=[{user_id:user,display_name:'Nguyễn An',username:'an.mot',role:'MEMBER'},{user_id:'member-two',display_name:'Nguyễn An',username:'an.hai',role:'MEMBER'}];
+const versions=[{version:1,note:'Bản đầu tiên'},{version:2,note:'Bổ sung nội dung'}];
+const results=[],errors=[],requests=[];
+const browser=await chromium.launch({channel:'msedge',headless:true});
+const context=await browser.newContext({viewport:{width:1440,height:1000},timezoneId:'Asia/Bangkok',locale:'vi-VN',serviceWorkers:'block'});
+context.setDefaultTimeout(15000);
+await context.addInitScript(({user})=>{
+  localStorage.setItem('tm.access_token','ux-fixture-token');localStorage.setItem('tm.browser_session','1');
+  localStorage.setItem('tm.session_user',JSON.stringify({id:user,email:'nguoi-dung@example.test',role:'USER',mustChangePassword:false}));
+  localStorage.setItem('tm.locale','en'); // Lựa chọn cũ không làm giao diện rơi về tiếng Anh.
+},{user});
+const page=await context.newPage();page.on('pageerror',error=>errors.push(error.message));
+await context.route('**/api/v1/**',async route=>{
+  const url=new URL(route.request().url()),p=url.pathname.replace('/api/v1',''),method=route.request().method();
+  requests.push({path:p,method,query:Object.fromEntries(url.searchParams)});
+  let data=[];
+  const paged=rows=>({items:rows,next_cursor:null,has_more:false,total:rows.length});
+  if(p==='/auth/web/csrf')data={csrf_token:'fixture-csrf'};
+  else if(p==='/auth/web/refresh')data={access_token:'ux-fixture-token',user_id:user,email:'nguoi-dung@example.test',role:'USER'};
+  else if(p==='/me/access')data={systemAdmin:true,projects:[projectAccess],workspaces:[{id:workspace,name:'Đội sản phẩm',role:'OWNER',status:'ACTIVE',type:'TEAM',canManage:true,canCreateProject:true}]};
+  else if(p==='/projects')data=paged([projectRow]);
+  else if(p===`/projects/${project}`)data=projectRow;
+  else if(p.endsWith('/custom-role'))data={name:'Điều phối viên',permissions:[]};
+  else if(p.endsWith('/settings')&&p.startsWith('/projects/'))data={version:1,approval_enabled:true,status:'ACTIVE'};
+  else if(p.endsWith('/members')&&p.startsWith('/projects/'))data=members;
+  else if(p.endsWith('/assignment-candidates')||p.endsWith('/collaboration-candidates'))data=members.map(m=>({userId:m.user_id,displayName:m.display_name,username:m.username}));
+  else if(p.endsWith('/primary-assignee'))data={primaryUserId:user,primaryDisplayName:'Nguyễn An',version:3};
+  else if(p==='/tasks/batch'){data=route.request().postDataJSON().items.map(item=>({...item,success:true}));}
+  else if(p==='/tasks'&&method==='POST')data={id:'created-task'};
+  else if(p==='/tasks')data=paged(taskRows.filter(t=>!url.searchParams.get('state')||t.state===url.searchParams.get('state')));
+  else if(p===`/tasks/${task}`)data=taskRows[0];
+  else if(p===`/tasks/${task}/access`)data={role:'MANAGER',writable:true,metadata:true,assignment:true,structure:true,subtask:true,execute:true,comment:true,review:true,workflowActions:['submit','cancel'],files:true};
+  else if(p.endsWith('/attachments'))data={items:[{id:'attachment-one',file_name:'Đặc tả giao diện.pdf',status:'AVAILABLE',version:2}]};
+  else if(p==='/files/attachment-one/versions')data=versions;
+  else if(p==='/files/attachment-one/restore')data={attachment_id:'attachment-one',version:3};
+  else if(p==='/me/tasks')data={content:[],last:true,totalElements:0};
+  else if(p==='/reminders/preferences')data={quiet_hours_enabled:false,quiet_hours_start:'22:00',quiet_hours_end:'07:00',timezone:'Asia/Bangkok'};
+  else if(p==='/notifications/vapid/subscription-status')data={delivery_status:'DISABLED'};
+  else if(p==='/notifications')data=paged([]);
+  else if(p==='/notifications/unread-count')data={count:0};
+  else if(p==='/accounts/directory')data={content:[{user_id:user,username:'an.mot',display_name:'Nguyễn An',email:'nguoi-dung@example.test',status:'ACTIVE',locked:false}],totalElements:1,totalPages:1};
+  else if(p==='/reports/dashboard')data={scope:'PERSONAL',overall:'OK',metrics:{TASK_UNIQUE_TOTAL:{intValue:2},TASK_BY_STATE_COMPLETED:{intValue:0}}};
+  else if(p==='/dashboard')data={total:2,completed:0,overdue:0,focus:taskRows,by_state:{TODO:1,IN_PROGRESS:1}};
+  else if(p==='/workspaces')data=paged([{id:workspace,name:'Đội sản phẩm',type:'TEAM'}]);
+  else if(p.endsWith('/team-candidates'))data=members.map(m=>({userId:m.user_id,displayName:m.display_name,role:m.role}));
+  else if(p==='/realtime/ticket')data={ticket:null};
+  else if(p==='/search')data={items:[]};
+  await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({data})});
+});
+const capture=async name=>{await page.screenshot({path:fileURLToPath(new URL(name+'.png',output)),fullPage:true});};
+const overflow=()=>page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth+1);
+try{
+  await page.goto(base+'/tasks');await page.getByRole('link',{name:'Hoàn thiện trang đăng nhập',exact:true}).waitFor();
+  assert.equal(await page.getByLabel('Lọc ưu tiên',{exact:true}).isVisible(),false);
+  await page.getByRole('button',{name:'Lọc chi tiết'}).click();await page.getByLabel('Lọc ưu tiên',{exact:true}).selectOption('HIGH');
+  await page.getByRole('button',{name:'Bỏ lọc Ưu tiên: Cao'}).waitFor();
+  await page.getByRole('button',{name:'Lọc chi tiết'}).click();assert.equal(await page.getByLabel('Lọc ưu tiên',{exact:true}).isVisible(),false);
+  await page.getByRole('button',{name:'Xóa tất cả',exact:true}).click();
+  results.push('Bộ lọc chi tiết thu gọn; điều kiện đang áp dụng có thể xóa khi đã thu gọn.');
+  await page.getByRole('button',{name:'Người phụ trách',exact:true}).click();
+  await page.getByRole('combobox',{name:'Tìm người phụ trách'}).fill('nguyen an');
+  await page.getByRole('option',{name:/@an.hai/}).waitFor();
+  assert.equal(await page.getByRole('listbox').getByRole('option').count(),2);
+  await capture('chon-nguoi');
+  const filtered=page.waitForResponse(r=>r.url().includes('/tasks?')&&r.url().includes('assignee_id=member-two'));
+  await page.getByRole('option',{name:/@an.hai/}).click();await filtered;
+  results.push('Tìm tên tiếng Việt không dấu; hai người trùng tên được phân biệt bằng tên đăng nhập.');
+  await page.getByRole('button',{name:'Xóa tất cả',exact:true}).click();
+  await page.getByLabel('Chọn Hoàn thiện trang đăng nhập').check();
+  await page.getByLabel('Thao tác hàng loạt').selectOption('ASSIGN');
+  await page.getByRole('button',{name:'Người thực hiện hàng loạt'}).click();
+  await page.getByRole('option',{name:/@an.mot/}).click();
+  await page.getByRole('button',{name:'Áp dụng',exact:true}).click();
+  await page.getByText('Đã xử lý 1/1 công việc.').waitFor();
+  results.push('Giao hàng loạt chọn người bằng tên và gửi mã cùng phiên bản công việc.');
+  await capture('cong-viec');assert.equal(await overflow(),false);
+  await page.getByRole('button',{name:'Tạo công việc dự án',exact:true}).click();
+  await page.getByRole('button',{name:'Dự án giao việc'}).click();await page.getByRole('option',{name:'Website khách hàng'}).click();
+  await page.getByLabel('Tiêu đề công việc dự án *',{exact:true}).fill('Công việc minh họa');
+  await capture('tao-cong-viec');
+  await page.goto(base+`/files?taskId=${task}`);
+  await page.getByRole('button',{name:'Lịch sử phiên bản'}).click();
+  await page.getByLabel('Phiên bản cần khôi phục').selectOption('1');
+  await capture('lich-su-tep');
+  await page.getByRole('button',{name:'Xác nhận khôi phục thành phiên bản mới'}).click();
+  await page.getByRole('status').filter({hasText:'Đã khôi phục thành phiên bản mới'}).waitFor();
+  assert(requests.some(r=>r.path==='/files/attachment-one/restore'&&r.method==='POST'));
+  results.push('Khôi phục tại đúng tệp, chọn phiên bản có thật và xác nhận tạo phiên bản mới.');
+  await page.goto(base+`/calendar?taskId=${task}`);
+  await page.getByRole('button',{name:'Công việc cần nhắc'}).waitFor();await capture('lich-nhac-viec');
+  results.push('Mở lịch từ công việc giữ ngữ cảnh công việc đã chọn.');
+  for(const route of ['/projects','/workspaces','/teams','/roles','/notes','/my-tasks','/reports','/settings','/notifications','/my-role','/ai','/admin',`/tasks/${task}`,`/projects/${project}`]){
+    await page.goto(base+route);await page.locator('main').waitFor();await page.waitForLoadState('networkidle');
+    assert.equal(await page.getByText('Unexpected Application Error!').count(),0,route);
+  }
+  results.push('Mở các màn hình dự án, không gian, nhóm, phân quyền, ghi chú, việc cá nhân, báo cáo, cài đặt, thông báo, hướng dẫn, trợ lý, quản trị và chi tiết.');
+  await page.setViewportSize({width:390,height:844});await page.goto(base+'/tasks');
+  await page.getByRole('link',{name:'Hoàn thiện trang đăng nhập',exact:true}).waitFor();
+  assert.equal(await overflow(),false,'Trang công việc không tràn ngang trên điện thoại');
+  await capture('dien-thoai');
+  await page.getByRole('button',{name:'Người phụ trách',exact:true}).click();assert.equal(await overflow(),false,'Bộ chọn không tràn ngang');
+  await page.getByRole('combobox',{name:'Tìm người phụ trách'}).press('Escape');
+  results.push('Điện thoại 390 px: trang công việc và bộ chọn không tràn ngang; đóng bộ chọn bằng Escape.');
+  assert.deepEqual(errors,[]);
+  await writeFile(new URL('ket-qua.json',output),JSON.stringify({mode:'Dữ liệu giả lập, không truy cập máy chủ hoặc database thật',results,errors},null,2));
+  console.log(JSON.stringify({results,errors},null,2));
+}finally{await context.close();await browser.close();}

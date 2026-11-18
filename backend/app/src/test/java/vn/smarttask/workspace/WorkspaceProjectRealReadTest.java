@@ -174,4 +174,31 @@ class WorkspaceProjectRealReadTest {
     u.setStatus("ACTIVE");
     return u;
   }
+
+  @Test
+  void memberNamesKeepExistingFieldsWithoutExposingCredentials() throws Exception {
+    UUID pid = UUID.randomUUID();
+    var membership = new vn.smarttask.project.entity.ProjectMembership(UUID.randomUUID(), pid, actor, "MEMBER");
+    when(projectMembers.findMembership(pid, actor)).thenReturn(Optional.of(membership));
+    when(projectMembers.findByProjectId(pid)).thenReturn(List.of(membership));
+    when(users.findAllById(List.of(actor))).thenReturn(List.of(activeUser()));
+    var member = projectController.members(pid).getBody().data().get(0);
+    assertEquals(actor, member.userId());
+    assertEquals("MEMBER", member.role());
+    assertEquals("U", member.displayName());
+    assertEquals("u", member.username());
+    var json = new com.fasterxml.jackson.databind.ObjectMapper().valueToTree(member);
+    assertEquals(4, json.size());
+    assertFalse(json.has("email"));
+    assertFalse(json.has("passwordHash"));
+    org.mockito.Mockito.verify(policy).requireProjectRead(actor, pid);
+  }
+
+  @Test
+  void deniedMemberListNeverLoadsProfiles() {
+    UUID pid = UUID.randomUUID();
+    doThrow(AppException.notFound("Project not found")).when(policy).requireProjectRead(actor, pid);
+    assertThrows(AppException.class, () -> projectController.members(pid));
+    org.mockito.Mockito.verifyNoInteractions(users);
+  }
 }

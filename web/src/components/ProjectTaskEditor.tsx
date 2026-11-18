@@ -73,7 +73,7 @@ export default function ProjectTaskEditor({
           className="btn btn-secondary text-xs flex items-center gap-1.5"
         >
           <AppIcon name="edit" size={14} />
-          <span>{open ? "Đóng sửa công việc" : "Sửa thông tin / deadline"}</span>
+          <span>{open ? "Đóng sửa công việc" : "Sửa thông tin / hạn hoàn thành"}</span>
         </button>
       </div>
 

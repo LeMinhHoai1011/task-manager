@@ -1,0 +1,33 @@
+{
+  "ngay": "18/11/2026",
+  "web": {
+    "so_tap_tin": 27,
+    "dat": 72,
+    "that_bai": 0
+  },
+  "backend": {
+    "dat": 24,
+    "that_bai": 0,
+    "bo_qua": 0,
+    "pham_vi": "Kiểm thử tập trung bằng mock, không dùng database"
+  },
+  "kiem_tra_kieu": "Đạt",
+  "lint": "Đạt",
+  "ban_dung": "Đạt; có cảnh báo gói JavaScript trên 500 kB",
+  "trinh_duyet": {
+    "so_nhom_dat": 7,
+    "loi_javascript": 0,
+    "du_lieu": "API giả lập",
+    "kich_thuoc": [
+      "1440 × 1000",
+      "390 × 844"
+    ]
+  },
+  "chua_kiem_tra": [
+    "Tích hợp database và lưu trữ thật",
+    "Tải lớn",
+    "Trình đọc màn hình",
+    "Thiết bị điện thoại thật"
+  ],
+  "bao_cao": "Sáu ảnh tải được, chuyển màn hình hoạt động, không tràn ngang tại 390 px; bản dự kiến mở form được."
+}

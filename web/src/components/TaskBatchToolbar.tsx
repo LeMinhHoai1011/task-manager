@@ -1,6 +1,7 @@
-import {useRef, useState} from "react";
+import {useEffect, useRef, useState} from "react";
 import {apiFetch, newIdempotencyKey, unwrapData} from "../api/client";
-import {Button, Select, TextInput} from "./ui";
+import {Button, Select, TextInput, priorityLabel} from "./ui";
+import MemberPicker from "./MemberPicker";
 
 export type BatchSelection = {id:string; title:string; version:number};
 type BatchResult = {id:string; success:boolean; state?:string; version?:number; code?:string; reason_code?:string};
@@ -17,6 +18,8 @@ export default function TaskBatchToolbar({selected, onComplete, onClear, onBusyC
   const [requestedAction,setAction] = useState<BatchAction>("START");
   const action=allowedActions.includes(requestedAction)?requestedAction:allowedActions[0]??"START";
   const [value,setValue] = useState("");
+  const selectionKey=selected.map(row=>row.id).sort().join(",");
+  useEffect(()=>{setValue(action==="PRIORITY"?"MEDIUM":"");setConfirmed(false);},[selectionKey,action]);
   const [busy,setBusy] = useState(false);
   const [confirmed,setConfirmed] = useState(false);
   const [message,setMessage] = useState("");
@@ -66,14 +69,14 @@ export default function TaskBatchToolbar({selected, onComplete, onClear, onBusyC
           {Object.entries(actions).filter(([key])=>allowedActions.includes(key as BatchAction)).map(([key,label])=><option key={key} value={key}>{label}</option>)}
         </Select>
         {action==="PRIORITY"?<Select aria-label="Ưu tiên hàng loạt" disabled={busy} value={value} onChange={e=>setValue(e.target.value)}>
-          {["LOW","MEDIUM","HIGH","URGENT"].map(priority=><option key={priority}>{priority}</option>)}
-        </Select>:needsValue&&<TextInput aria-label={action==="ASSIGN"?"ID người thực hiện hàng loạt":"Nhãn hàng loạt"} disabled={busy} maxLength={action==="ASSIGN"?36:50} placeholder={action==="ASSIGN"?"UUID thành viên dự án":"Tên nhãn"} value={value} onChange={e=>setValue(e.target.value)}/>}
+          {["LOW","MEDIUM","HIGH","URGENT"].map(priority=><option key={priority} value={priority}>{priorityLabel(priority)}</option>)}
+        </Select>:action==="ASSIGN"?<MemberPicker key={selected.map(row=>row.id).sort().join(",")} label="Người thực hiện hàng loạt" taskIds={selected.map(row=>row.id)} disabled={busy} value={value} onChange={setValue}/>:needsValue&&<TextInput aria-label="Nhãn hàng loạt" disabled={busy} maxLength={50} placeholder="Tên nhãn" value={value} onChange={e=>setValue(e.target.value)}/>}
         <Button disabled={busy||!allowedActions.length||(needsValue&&!value.trim())||(action==="DELETE"&&!confirmed)} onClick={()=>void apply()}>{busy?"Đang xử lý…":"Áp dụng"}</Button>
         <Button variant="secondary" disabled={busy} onClick={onClear}>Bỏ chọn tất cả</Button>
       </div>
       {action==="DELETE"&&<label className="flex items-center gap-2"><input type="checkbox" disabled={busy} checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/>Xác nhận xóa mềm các công việc đã chọn và việc con của chúng.</label>}
       {action==="SUBMIT"&&<p className="text-sm">Công việc sẽ chuyển sang chờ duyệt hoặc hoàn thành theo cấu hình từng dự án.</p>}
-      <p className="text-xs text-slate-500">Chỉ áp dụng cho các công việc đã chọn trong danh sách đang tải. Quyền và phiên bản được kiểm tra riêng từng công việc.</p>
+      <p className="text-xs text-slate-500">Chỉ áp dụng cho công việc đã chọn. Hệ thống báo riêng những việc chưa xử lý được.</p>
     </>}
     {message&&<p role="status">{message}</p>}
     {failures.length>0&&<ul aria-label="Công việc chưa xử lý" className="space-y-1 text-sm">{failures.map((failure,index)=><li key={index}><strong>{failure.title}</strong>: {failure.message}</li>)}</ul>}

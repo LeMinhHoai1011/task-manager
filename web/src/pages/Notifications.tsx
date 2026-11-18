@@ -11,7 +11,7 @@ interface Notif {
   title?: string;
   read?: boolean;
 }
-const kindLabels:Record<string,string>={TASK_ASSIGNED:"Bạn được giao công việc",TASK_REASSIGNED:"Người phụ trách công việc đã thay đổi",TASK_DEADLINE_SET:"Deadline công việc đã thay đổi",TASK_DEADLINE_SOON:"Công việc sắp đến hạn",TASK_DEADLINE_OVERDUE:"Công việc đã quá hạn",TASK_COMMENT_ADDED:"Có bình luận mới trong công việc",TASK_APPROVAL_SUBMITTED:"Có công việc được nộp duyệt",TASK_WORKFLOW_T_01:"Công việc đã bắt đầu",TASK_WORKFLOW_T_02:"Công việc đang chờ duyệt",TASK_WORKFLOW_T_03:"Công việc đã hoàn thành",TASK_WORKFLOW_T_04:"Công việc đã được duyệt",TASK_WORKFLOW_T_05:"Công việc cần chỉnh sửa",TASK_REMINDER_FIRE:"Đến giờ nhắc công việc",TEAM_MEMBER_ADDED:"Bạn đã được thêm hoặc cập nhật vai trò trong nhóm",WORKSPACE_INVITED:"Bạn có lời mời tham gia Workspace"};
+const kindLabels:Record<string,string>={TASK_ASSIGNED:"Bạn được giao công việc",TASK_REASSIGNED:"Người phụ trách công việc đã thay đổi",TASK_DEADLINE_SET:"hạn hoàn thành công việc đã thay đổi",TASK_DEADLINE_SOON:"Công việc sắp đến hạn",TASK_DEADLINE_OVERDUE:"Công việc đã quá hạn",TASK_COMMENT_ADDED:"Có bình luận mới trong công việc",TASK_APPROVAL_SUBMITTED:"Có công việc được nộp duyệt",TASK_WORKFLOW_T_01:"Công việc đã bắt đầu",TASK_WORKFLOW_T_02:"Công việc đang chờ duyệt",TASK_WORKFLOW_T_03:"Công việc đã hoàn thành",TASK_WORKFLOW_T_04:"Công việc đã được duyệt",TASK_WORKFLOW_T_05:"Công việc cần chỉnh sửa",TASK_REMINDER_FIRE:"Đến giờ nhắc công việc",TEAM_MEMBER_ADDED:"Bạn đã được thêm hoặc cập nhật vai trò trong nhóm",WORKSPACE_INVITED:"Bạn có lời mời tham gia không gian làm việc"};
 
 interface QuietPrefs {
   quiet_hours_enabled: boolean;

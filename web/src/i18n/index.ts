@@ -5,14 +5,7 @@ export type Locale = "vi" | "en";
 
 const dicts: Record<Locale, Record<string, string>> = { vi, en };
 
-export function getLocale(): Locale {
-  try {
-    const v = localStorage.getItem("tm.locale");
-    return v === "en" ? "en" : "vi";
-  } catch {
-    return "vi";
-  }
-}
+export function getLocale(): Locale { return "vi"; }
 
 export function setLocale(l: Locale) {
   try {

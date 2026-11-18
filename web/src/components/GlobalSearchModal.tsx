@@ -187,7 +187,7 @@ export default function GlobalSearchModal({
 
           {!query.trim() && (
             <div className="p-4 text-xs text-slate-400 flex items-center justify-between">
-              <span>Gợi ý: Nhập tên task, tên dự án hoặc từ khóa trong ghi chú</span>
+              <span>Gợi ý: Nhập tên công việc, tên dự án hoặc từ khóa trong ghi chú</span>
               <span className="border border-slate-200 dark:border-slate-700 rounded px-1.5 py-0.5">Esc đóng</span>
             </div>
           )}
