@@ -2,6 +2,8 @@
 
 Ngày: 18/11/2026. Trạng thái: đề xuất để triển khai sau; chưa thêm chức năng nhắn tin, migration hoặc thay đổi phân quyền.
 
+**Cập nhật triển khai:** Bản đầu đã được viết theo yêu cầu tiếp theo, có thêm liên kết công việc và xóa tin gửi nhầm. Xem [hướng dẫn/API thực tế](PROJECT-CHAT.md) và [báo cáo nghiệm thu](BAO-CAO-NHAN-TIN-DU-AN-2026-11-18.md). Phần bên dưới được giữ làm bản kế hoạch ban đầu.
+
 ## 1. Mốc source để quay lại
 
 - Commit giao diện đã kiểm thử: `508f392`.

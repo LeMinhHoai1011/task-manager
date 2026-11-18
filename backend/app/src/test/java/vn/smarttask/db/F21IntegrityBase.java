@@ -63,9 +63,9 @@ abstract class F21IntegrityBase {
   }
 
   @Test
-  void flywayValidatesEveryMigrationThroughV17() {
-    assertEquals("17", flyway.info().current().getVersion().getVersion());
-    assertEquals(17, flyway.info().applied().length);
+  void flywayValidatesEveryMigrationThroughV18() {
+    assertEquals("18", flyway.info().current().getVersion().getVersion());
+    assertEquals(18, flyway.info().applied().length);
     assertEquals(0, flyway.info().pending().length);
     assertTrue(flyway.validateWithResult().validationSuccessful);
   }

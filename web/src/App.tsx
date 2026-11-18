@@ -29,6 +29,7 @@ import RoleGuide from "./pages/RoleGuide";
 import { ENABLE_AI } from "./config";
 import { RealtimeProvider } from "./realtime/RealtimeContext";
 import { ThemeProvider } from "./components/ThemeContext";
+import {ChatDraftProvider} from "./chat/ChatDraftContext";
 
 const router=createBrowserRouter([{path:"*",element:<AppRoutes/>}]);
 
@@ -38,7 +39,9 @@ export default function App() {
     <AuthProvider>
       <RealtimeProvider>
         <AccessProvider>
+          <ChatDraftProvider>
           <RouterProvider router={router}/>
+          </ChatDraftProvider>
         </AccessProvider>
       </RealtimeProvider>
     </AuthProvider>

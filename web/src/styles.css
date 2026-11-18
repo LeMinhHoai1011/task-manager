@@ -564,3 +564,29 @@ main { padding: 16px; flex: 1; }
 @media(max-width:640px){.search-select{min-width:0;width:100%}.filter-primary>.search-select,.filter-primary>.filter-field{min-width:0;flex-basis:100%}.search-select-trigger,.search-select-option{min-height:44px}.search-select-popup input{font-size:16px}.filter-advanced>label{min-width:0;width:100%}.quick-filters .btn{flex:1}.create-task-form{padding:16px}}
 
 @media(max-width:640px){.filter-bar .filter-main{display:block}.filter-bar .filter-primary{display:flex;flex-direction:column;align-items:stretch}.filter-bar .filter-primary>.search-select,.filter-bar .filter-primary>.filter-field{width:100%;flex:auto}.filter-bar .filter-tools{margin-top:12px}.filter-bar .filter-advanced{display:flex;flex-direction:column;gap:12px}.filter-bar .filter-advanced[hidden]{display:none}}
+
+/* Trao đổi theo dự án: văn bản và liên kết công việc dùng cùng nền/màu với ứng dụng. */
+.project-chat{border:1px solid var(--color-border);border-radius:12px;background:var(--color-surface);overflow:visible;color:var(--color-text-primary)}
+.chat-heading{padding:20px 24px;border-bottom:1px solid var(--color-border);display:flex;align-items:start;justify-content:space-between;gap:16px}
+.chat-heading h2{font-size:18px;font-weight:650;margin:0 0 6px}.chat-heading p,.chat-hint{font-size:12px;color:var(--color-text-secondary)}
+.chat-connection{font-size:12px;white-space:nowrap;padding-top:4px;color:var(--color-text-secondary)}
+.chat-messages{height:440px;overflow-y:auto;overscroll-behavior:contain;padding:12px 24px;scrollbar-gutter:stable;overflow-anchor:none}
+.chat-history{text-align:center;padding:8px}.chat-empty{text-align:center;padding:72px 12px;color:var(--color-text-secondary)}
+.chat-message{padding:16px 0;border-bottom:1px solid var(--color-border);max-width:100%}.chat-message:last-of-type{border-bottom:0}
+.chat-message-heading{display:flex;align-items:baseline;flex-wrap:wrap;gap:8px;font-size:13px}.chat-message-heading strong{font-weight:650}
+.chat-message-heading time,.chat-username{font-size:11px;color:var(--color-text-secondary)}
+.chat-message.is-mine .chat-message-heading strong{color:var(--color-primary)}
+.chat-body{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.65;font-size:14px;margin:7px 0 0;max-width:80ch}
+.chat-body.is-deleted{font-style:italic;color:var(--color-text-secondary)}
+.chat-delete{font-size:12px;text-decoration:underline;color:var(--color-text-secondary);margin-left:auto;padding:4px 8px}
+.chat-task-link{display:flex;flex-direction:column;gap:5px;border-left:3px solid var(--color-primary);background:var(--color-surface-muted);padding:12px 16px;margin-top:12px;font-size:13px;max-width:560px}
+.chat-task-link span{font-size:12px;color:var(--color-text-secondary)}.chat-task-link:hover{text-decoration:underline}
+.chat-pending{opacity:.85}.chat-pending>p[role=status]{font-size:12px;color:var(--color-text-secondary);margin:8px 0}
+.chat-end{height:1px}.chat-new{display:block;margin:8px auto}
+.chat-composer{padding:18px 24px;border-top:1px solid var(--color-border);display:grid;gap:10px}
+.chat-composer>label{font-weight:600}.chat-composer textarea{resize:vertical;min-height:88px;max-height:240px;line-height:1.6}
+.chat-composer-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.chat-composer-actions>span{margin-left:auto}.chat-too-long{font-size:12px;color:#b42318}
+.chat-readonly{padding:20px 24px;color:var(--color-text-secondary);border-top:1px solid var(--color-border)}
+.chat-delete-confirm{padding:18px 24px;border-top:1px solid var(--color-border);display:grid;gap:12px;background:var(--color-surface-muted)}
+.chat-delete-confirm h3{font-weight:650}.chat-delete-confirm>div{display:flex;gap:12px;flex-wrap:wrap}.chat-delete-confirm label{display:grid;gap:6px}
+@media(max-width:640px){.chat-heading{flex-direction:column;gap:4px}.chat-heading,.chat-composer,.chat-delete-confirm{padding:16px}.chat-messages{padding:8px 16px;height:380px}.chat-connection{white-space:normal}.chat-composer-actions{gap:8px}.chat-composer-actions .btn{min-height:44px}.chat-composer textarea{font-size:16px}.chat-username{overflow-wrap:anywhere}.chat-message-heading time{margin-left:0}.chat-delete{min-height:36px}.chat-task-link{max-width:100%;overflow-wrap:anywhere}}

@@ -42,15 +42,15 @@ class FlywayMigrationValidationIT {
   @Autowired private Flyway flyway;
 
   @Test
-  @DisplayName("Flyway reaches head version 17 and all migrations are successful")
-  void flywayReachesHeadVersion17() {
+  @DisplayName("Flyway reaches head version 18 and all migrations are successful")
+  void flywayReachesHeadVersion18() {
     assertNotNull(flyway, "Flyway bean must be injected");
     MigrationInfo current = flyway.info().current();
     assertNotNull(current, "Current migration must not be null");
-    assertEquals("17", current.getVersion().getVersion(), "Flyway head migration must be V17");
+    assertEquals("18", current.getVersion().getVersion(), "Flyway head migration must be V18");
 
     MigrationInfo[] applied = flyway.info().applied();
-    assertEquals(17, applied.length, "All 17 migrations must be applied");
+    assertEquals(18, applied.length, "All 18 migrations must be applied");
     assertEquals(0, flyway.info().pending().length);
     assertTrue(flyway.validateWithResult().validationSuccessful);
     for (MigrationInfo info : applied) {

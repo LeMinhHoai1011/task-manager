@@ -1,5 +1,5 @@
 import {statusLabel} from "../i18n/labels";
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useSearchParams, useNavigate } from "react-router-dom";
 import { apiFetch } from "../api/client";
 import { useToast } from "../components/ToastContext";
@@ -7,6 +7,9 @@ import AppIcon from "../components/AppIcon";
 import { Badge } from "../components/ui";
 import CreateProjectTask from "../components/CreateProjectTask";
 import {useAccess,roleLabel} from "../auth/AccessContext";
+import ProjectChat from "../chat/ProjectChat";
+import {useRealtimeEvent} from "../realtime/RealtimeContext";
+import {useAuth} from "../auth/AuthContext";
 
 interface ProgressLogItem {
   id: string;
@@ -28,10 +31,11 @@ export default function ProjectDetail() {
   const navigate = useNavigate();
   const { showToast } = useToast();
   const access=useAccess();
+  const chatUser=useAuth().user?.id;
   const currentAccess=access.projects.find(p=>p.id===id);
 
   const [activeTab, setActiveTab] = useState<
-    "overview" | "tasks" | "notes" | "progress" | "members" | "reports" | "settings"
+    "overview" | "tasks" | "chat" | "notes" | "progress" | "members" | "reports" | "settings"
   >(() => (searchParams.get("tab") as any) || "overview");
 
   const [project, setProject] = useState<any>(null);
@@ -42,6 +46,22 @@ export default function ProjectDetail() {
   const [loading, setLoading] = useState(true);
   const projectRole = currentAccess?.role;
   const canManage = !!currentAccess?.canManage;
+  const canChat=!!projectRole&&["OWNER","ADMIN","MANAGER","MEMBER"].includes(projectRole);
+  const [chatUnread,setChatUnread]=useState(0);
+  const visibleProject=useRef(id);visibleProject.current=id;
+  const refreshChatUnread=useCallback(async()=>{
+    if(!canChat||!id){setChatUnread(0);return;}
+    try{const result=await apiFetch<{data:{count:number}}>(`/projects/${id}/chat/unread`);if(visibleProject.current===id)setChatUnread(result.data.count);}
+    catch{if(visibleProject.current===id)setChatUnread(0);}
+  },[id,canChat]);
+  useEffect(()=>{
+    if(activeTab==="chat")return;
+    let live=true;
+    const refresh=()=>{if(live&&document.visibilityState==="visible")void refreshChatUnread();};
+    refresh();const timer=window.setInterval(refresh,30000);
+    return()=>{live=false;window.clearInterval(timer);};
+  },[activeTab,refreshChatUnread]);
+  useRealtimeEvent(["chat"],event=>{if(event.scopeId===id&&activeTab!=="chat")void refreshChatUnread();});
 
   // New Progress Log modal / form state
   const [logModalOpen, setLogModalOpen] = useState(false);
@@ -295,12 +315,13 @@ export default function ProjectDetail() {
           {[
             { id: "overview", label: "1. Tổng quan", icon: "overview" },
             { id: "tasks", label: `2. Công việc (${totalTasks})`, icon: "tasks" },
+            { id: "chat", label: `Trao đổi${chatUnread?` · ${chatUnread}`:""}`, icon: "message-square" },
             { id: "notes", label: `3. Ghi chú (${notes.length})`, icon: "files" },
             { id: "progress", label: `4. Tiến độ (${progressLogs.length})`, icon: "report" },
             { id: "members", label: `5. Thành viên (${members.length})`, icon: "team" },
             { id: "reports", label: "6. Báo cáo", icon: "report" },
             { id: "settings", label: "7. Cài đặt", icon: "settings" },
-          ].filter(tab=>tab.id!=="settings"||canManage).map((tab) => (
+          ].filter(tab=>(tab.id!=="settings"||canManage)&&(tab.id!=="chat"||canChat)).map((tab) => (
             <button
               key={tab.id}
               onClick={() => handleTabChange(tab.id as any)}
@@ -316,6 +337,8 @@ export default function ProjectDetail() {
           ))}
         </nav>
       </div>
+
+      {activeTab==="chat"&&(canChat?<ProjectChat key={`${chatUser}:${id}`} projectId={String(id)} onUnread={setChatUnread}/>:<p role="alert" className="card">Bạn chưa có quyền xem trao đổi chung của dự án.</p>)}
 
       {/* TAB 1: TỔNG QUAN */}
       {activeTab === "overview" && (

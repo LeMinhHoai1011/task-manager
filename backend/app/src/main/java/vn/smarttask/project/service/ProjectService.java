@@ -173,6 +173,7 @@ public class ProjectService {
     members.save(m);
     audit.append(actorId, "project.member.remove", "project", projectId, "ALLOWED", null, "{}");
     signalProject(projectId, "PROJECT_MEMBER_CHANGED", projectId);
+    if (realtime != null) realtime.user(targetId, "PROJECT_ACCESS_CHANGED", "PROJECT", projectId, projectId);
   }
 
   @Transactional

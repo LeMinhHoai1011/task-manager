@@ -1,0 +1,34 @@
+{
+  "ngay": "18/11/2026",
+  "web": {
+    "dat": 82,
+    "that_bai": 0,
+    "so_tep": 28
+  },
+  "backend": {
+    "dat": 25,
+    "that_bai": 0,
+    "bo_qua": 0,
+    "so_ca_tich_hop_postgresql": 11,
+    "migration": "V18"
+  },
+  "kiem_tra_kieu": "Đạt",
+  "lint": "Đạt",
+  "dong_goi_backend": "Đạt",
+  "ban_dung_web": "Đạt; có cảnh báo gói JavaScript trên 500 kB",
+  "trinh_duyet": {
+    "nhom_nghiem_thu": 6,
+    "loi_javascript": 0,
+    "du_lieu": "Backend và PostgreSQL kiểm thử thật, không phải production",
+    "do_tre_ms": [
+      236,
+      284
+    ],
+    "ghi_chu": "Hai mẫu quan sát khi nghiệm thu, không phải benchmark hoặc p95."
+  },
+  "gioi_han": [
+    "Chưa đo tải lớn hoặc fan-out nhiều backend",
+    "Chưa triển khai production",
+    "Chưa chạy toàn bộ backend suite cần dịch vụ ngoài"
+  ]
+}

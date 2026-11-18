@@ -1,5 +1,7 @@
 # 03 — API CONTRACT: QUY ƯỚC, ERROR MODEL, ENDPOINT, DTO, REALTIME
 
+> **Ghi chú triển khai 18/11/2026:** [Trao đổi trong dự án — quyền, API và đồng bộ](PROJECT-CHAT.md) mô tả phần chat đã triển khai. Kết nối realtime trong source hiện tại là `POST /api/v1/realtime/ticket` và `GET /api/v1/realtime/stream?ticket=…` qua SSE; không đưa access token vào URL. Những mục WebSocket phía dưới thuộc bản đề xuất ban đầu, không phải hướng dẫn gọi transport đang chạy.
+
 **Trạng thái: ĐỀ XUẤT — CHƯA FROZEN.**
 Tài liệu này **chưa phải quyết định đã duyệt** và **không** tự trở thành baseline. Đặc tả mục 17 ("API — Nhóm chức năng đề xuất, CHƯA FROZEN contract chi tiết") chỉ là **gợi ý phân nhóm** đường dẫn; toàn bộ bảng endpoint `EP-nnn` dưới đây là **đề xuất endpoint chính thức chờ phê duyệt**. Chưa viết code, chưa tạo database, chưa sinh OpenAPI, chưa kiểm thử — do đó **không có** bất kỳ tuyên bố PASS/đạt nào trong tài liệu này.
 

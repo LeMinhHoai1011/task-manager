@@ -1,0 +1,17 @@
+{
+  "mode": "Hai trình duyệt thật, backend thật, PostgreSQL kiểm thử riêng cổng 55447; không dùng database production",
+  "results": [
+    "Hai tài khoản thật: gửi tin qua API, người còn lại nhận qua SSE và mở được liên kết công việc có quyền xem.",
+    "Lỗi mạng: bản tin được giữ để thử lại, dùng cùng định danh và chỉ xuất hiện một lần.",
+    "Dấu đã đọc được lưu ở server khi người dùng xem đến cuối cuộc trao đổi.",
+    "Xóa tin của chính mình cần xác nhận; người còn lại thấy dấu đã xóa và API không trả nội dung cũ.",
+    "Mất mạng rồi kết nối lại: tải bù đủ tin từ PostgreSQL, không phải tải lại trang.",
+    "Gỡ thành viên khi đang chat: giao diện đóng phòng, bản nháp không lưu vào localStorage và API trả 404."
+  ],
+  "latency_ms": [
+    236,
+    284
+  ],
+  "note": "Hai mẫu quan sát khi nghiệm thu, không phải benchmark hoặc p95.",
+  "errors": []
+}
