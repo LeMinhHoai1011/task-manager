@@ -9,8 +9,9 @@ import ReauthModal from "./ReauthModal";
 import NotificationBell from "./NotificationBell";
 import AppIcon from "./AppIcon";
 import OfflineBanner from "./OfflineBanner";
+import UpdateNotice from "./UpdateNotice";
 import GlobalSearchModal from "./GlobalSearchModal";
-import {useAccess} from "../auth/AccessContext";
+import {useAccess,interfaceProfile} from "../auth/AccessContext";
 
 export default function Layout({ children }: { children: ReactNode }) {
   const auth = useAuth();
@@ -56,6 +57,9 @@ export default function Layout({ children }: { children: ReactNode }) {
   }
 
   const isAdmin = access.systemAdmin;
+  const profile=interfaceProfile(access);
+  const hasProjects=access.projects.length>0;
+  const managesWorkspace=access.workspaces.some(w=>w.type==="TEAM"&&w.canManage);
   const managesProjects=access.projects.some(p=>p.canManage);
   const canCreateTask=projectContext?access.projects.some(p=>p.id===projectContext&&p.canCreateTask):access.projects.some(p=>p.canCreateTask);
 
@@ -65,17 +69,17 @@ export default function Layout({ children }: { children: ReactNode }) {
     "/projects": t("nav.projects"),
     "/tasks": t("nav.tasks"),
     "/my-tasks": "Việc của tôi",
-    "/notes": "Ghi chú",
+    "/notes": "Thông tin đã lưu",
     "/teams": "Nhóm",
     "/roles": "Vai trò dự án",
-    "/calendar": t("nav.calendar"),
+    "/calendar": "Lịch & nhắc hẹn",
     "/files": t("nav.files"),
     "/notifications": t("nav.notifications"),
     "/reports": t("nav.reports"),
     "/settings": "Cài đặt cá nhân",
     "/my-role": "Vai trò và việc cần làm",
     "/ai": t("nav.ai"),
-    "/admin": t("nav.admin"),
+    "/admin": "Quản lý tài khoản",
   };
 
   const title = location.pathname.startsWith("/tasks/")
@@ -116,7 +120,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         aria-label="Điều hướng chính"
         className={`side app-sidebar ${menuOpen ? "is-open" : ""}`}
       >
-        <NavLink to="/dashboard" className="brand">
+        <NavLink to={profile.home} className="brand">
           <span className="brand-mark">
             <AppIcon name="tasks" size={22} />
           </span>
@@ -125,28 +129,31 @@ export default function Layout({ children }: { children: ReactNode }) {
           </span>
         </NavLink>
 
-        {/* NHÓM 1: THÀNH VIÊN (Member) */}
-        <p className="nav-group-label">Công việc của bạn</p>
+        <div className="px-3 py-3 text-sm" aria-label="Vai trò hiện tại"><strong>{access.loading?"Đang tải vai trò…":profile.label}</strong></div>
+        <p className="nav-group-label">Không gian cá nhân</p>
         {link("/dashboard", "Tổng quan", "overview")}
         {link("/my-tasks", "Việc của tôi", "personal")}
-        {link("/tasks", t("nav.tasks"), "tasks")}
-        {link("/notes", "Ghi chú", "files")}
-        {link("/calendar", t("nav.calendar"), "calendar")}
-        {link("/files", t("nav.files"), "files")}
+        {link("/notes", "Thông tin đã lưu", "files")}
+        {link("/calendar", "Lịch & nhắc hẹn", "calendar")}
 
         {/* NHÓM 2: QUẢN LÝ (Manager) */}
-        <p className="nav-group-label">Dự án và cộng tác</p>
-        {link("/projects", t("nav.projects"), "project")}
-        {link("/teams", "Nhóm", "team")}
-        {link("/workspaces", t("nav.workspaces"), "workspace")}
-        {link("/reports", t("nav.reports"), "report")}
-        {managesProjects&&link("/roles", "Phân quyền dự án", "roles")}
+        {hasProjects&&<>
+          <p className="nav-group-label">{managesProjects?"Quản lý dự án":profile.id==="guest"?"Theo dõi dự án":"Thực hiện công việc"}</p>
+          {link("/tasks",managesProjects?"Giao việc và phê duyệt":profile.id==="guest"?"Công việc được chia sẻ":"Việc được giao","tasks")}
+          {link("/projects",managesProjects?"Dự án quản lý":"Dự án tham gia","project")}
+          {link("/teams", "Nhóm cộng tác", "team")}
+          {link("/files", t("nav.files"), "files")}
+          {link("/reports", t("nav.reports"), "report")}
+          {managesProjects&&link("/roles", "Phân quyền dự án", "roles")}
+        </>}
+        {managesWorkspace&&<p className="nav-group-label">Quản lý Workspace</p>}
+        {link("/workspaces",managesWorkspace?"Thành viên và không gian":"Không gian làm việc","workspace")}
 
         {/* NHÓM 3: QUẢN TRỊ (Admin) */}
         {isAdmin && (
           <>
             <p className="nav-group-label">Quản trị hệ thống</p>
-            {link("/admin", t("nav.admin"), "settings")}
+            {link("/admin", "Quản lý tài khoản", "settings")}
           </>
         )}
 
@@ -155,7 +162,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         {link("/notifications", t("nav.notifications"), "bell")}
         {link("/settings", "Cài đặt", "settings")}
         {link("/my-role", "Vai trò và việc cần làm", "roles")}
-        {ENABLE_AI && link("/ai", t("nav.ai"), "ai")}
+        {ENABLE_AI && hasProjects && link("/ai", t("nav.ai"), "ai")}
 
         <div className="mt-auto border-t border-slate-200 pt-3">
           <RealtimeIndicator />
@@ -176,7 +183,7 @@ export default function Layout({ children }: { children: ReactNode }) {
       <main className="app-main flex flex-col min-w-0">
         {/* Topbar */}
         <header className="app-header dark:bg-slate-900 dark:border-slate-800 transition-colors">
-          <div className="header-location flex items-center gap-2">
+          <div className="header-location flex min-w-0 flex-1 items-center gap-2">
             <button
               className="mobile-menu"
               aria-label={menuOpen ? "Đóng menu" : "Mở menu"}
@@ -187,18 +194,18 @@ export default function Layout({ children }: { children: ReactNode }) {
               <AppIcon name={menuOpen ? "close" : "menu"} />
             </button>
             <span className="header-home hidden sm:inline text-xs text-slate-400">
-              Không gian làm việc
+              {profile.label}
             </span>
             <span className="header-divider hidden sm:inline text-slate-300" aria-hidden="true">
               /
             </span>
-            <span className="header-title font-bold text-sm text-slate-900 dark:text-white">
+            <span title={title} className="header-title min-w-0 truncate font-bold text-sm text-slate-900 dark:text-white">
               {title}
             </span>
           </div>
 
           {/* Topbar Actions: Global Search, Quick Create, Theme Toggle, Notification, User Dropdown */}
-          <div className="flex min-w-0 items-center gap-2.5">
+          <div className="flex shrink-0 items-center gap-2.5">
             {/* Global Search Button */}
             <button
               onClick={() => setSearchModalOpen(true)}
@@ -295,7 +302,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                       {auth.user?.email ?? "Tài khoản"}
                     </p>
                     <p className="text-[11px] text-slate-400 capitalize">
-                      Vai trò: {auth.user?.role ?? "Member"}
+                      Vai trò: {profile.label}
                     </p>
                   </div>
 
@@ -349,6 +356,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             </div>
           )}
           {access.error&&<div role="alert" className="card mb-4">{access.error} <button className="btn btn-secondary" onClick={access.reload}>Tải lại quyền</button></div>}
+          <UpdateNotice/>
           {children}
         </div>
       </main>

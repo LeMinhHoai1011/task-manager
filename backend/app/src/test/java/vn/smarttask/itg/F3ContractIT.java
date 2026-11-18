@@ -49,6 +49,7 @@ class F3ContractIT extends ItgBase {
         "username", "f3c1rej_" + tag(), "email", "f3c1r_" + tag() + "@itg.io",
         "password", "Secret123!", "display_name", "Reject Me"));
     String rejectId = json(reg2).path("data").path("user_id").asText();
+    jdbc.update("update app_user set status='PENDING',active=false where id=?",UUID.fromString(rejectId));
     MvcResult reject = doPost("/api/v1/accounts/" + rejectId + "/reject", adminToken,
         Map.of());
     assertEquals(200, reject.getResponse().getStatus());

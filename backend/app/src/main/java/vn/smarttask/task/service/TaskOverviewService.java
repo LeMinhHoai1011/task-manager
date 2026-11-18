@@ -78,8 +78,17 @@ public class TaskOverviewService {
       case "unscheduled" -> {start=null;end=null;}
       default -> throw AppException.badRequest("CALENDAR_VIEW_UNKNOWN","Unknown view");
     }
-    var f=scope(actor,selectedScope,project,team,start==null?null:start.atStartOfDay(zone).toOffsetDateTime(),end==null?null:end.atStartOfDay(zone).toOffsetDateTime());
+    var f=scope(actor,selectedScope,project,team,null,null);
+    String localDate="(t.due_at at time zone coalesce(nullif(t.due_timezone,''),'UTC'))::date";
+    String range=" and t.due_at is null";
+    if(start!=null){
+      f.params().put("startDate",start);f.params().put("endDate",end);
+      f.params().put("from",start.atStartOfDay(zone).toOffsetDateTime());
+      f.params().put("to",end.atStartOfDay(zone).toOffsetDateTime());
+      range=" and ((t.due_is_date_only and "+localDate+">=:startDate and "+localDate+"<:endDate)"
+          +" or (not t.due_is_date_only and t.due_at>=:from and t.due_at<:to))";
+    }
     int limit=Math.max(1,Math.min(size,200));f.params().put("limit",limit);f.params().put("offset",(long)Math.max(page,0)*limit);
-    return jdbc.queryForList("select t.id task_id,t.project_id,t.title,t.scope,t.due_at,t.due_timezone tz,t.due_is_date_only,t.state,t.version from task t where "+f.where()+(start==null?" and t.due_at is null":"")+" order by t.due_at nulls last,t.id limit :limit offset :offset",f.params());
+    return jdbc.queryForList("select t.id task_id,t.project_id,t.title,t.scope,t.due_at,t.due_timezone tz,t.due_is_date_only,case when t.due_is_date_only then cast("+localDate+" as text) end due_date_only,t.state,t.version from task t where "+f.where()+range+" order by t.due_at nulls last,t.id limit :limit offset :offset",f.params());
   }
 }

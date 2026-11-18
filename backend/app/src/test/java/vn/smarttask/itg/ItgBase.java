@@ -51,8 +51,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
  * ({@code itg_<n>_<rand>}) and its own workspace/project/task rows. Nothing
  * is rolled back; nothing is shared across test methods.
  *
- * <p>Rate-limit safety: every HTTP request carries a unique
- * {@code X-Forwarded-For} IP so the in-memory {@code RateLimiter} buckets
+ * <p>Rate-limit safety: every HTTP request uses a unique
+ * mock remote address so the in-memory {@code RateLimiter} buckets
  * (AUTH 10/min, DEFAULT 100/min per key) never trigger across tests.
  */
 @SpringBootTest
@@ -98,7 +98,7 @@ public abstract class ItgBase {
         + Long.toString(Math.abs(UUID.randomUUID().getLeastSignificantBits()), 36);
   }
 
-  /** Unique client IP per request: keeps the in-memory rate limiter out of the way. */
+  /** Unique mock peer IP per request: keeps the in-memory rate limiter out of the way. */
   protected static String fwd() {
     long a = Math.abs(UUID.randomUUID().getLeastSignificantBits());
     return "10." + (a % 200 + 10) + "." + ((a / 251) % 250 + 1) + "." + ((a / 63001) % 250 + 1);
@@ -155,7 +155,7 @@ public abstract class ItgBase {
   // ---------------------------------------------------------------- http
 
   private MockHttpServletRequestBuilder withCommon(MockHttpServletRequestBuilder b, String token) {
-    b.header("X-Forwarded-For", fwd()).accept(MediaType.APPLICATION_JSON);
+    b.with(r->{r.setRemoteAddr(fwd());return r;}).accept(MediaType.APPLICATION_JSON);
     if (token != null) {
       b.header("Authorization", "Bearer " + token);
     }

@@ -93,7 +93,7 @@ export default function Workspaces() {
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((w) => (
             <Card key={w.id} className="card-hover">
-              <div className="flex items-start justify-between gap-2"><p className="font-semibold text-slate-900">{w.name}</p><span className="badge-state badge-todo">{roleLabel(access.workspaces.find(a=>a.id===w.id)?.role)}</span></div>
+              <div className="flex items-start justify-between gap-2"><p className="font-semibold text-slate-900 dark:text-slate-100">{w.name}</p><span className="badge-state badge-todo">{roleLabel(access.workspaces.find(a=>a.id===w.id)?.role)}</span></div>
               <p className="mt-2 text-sm text-slate-500">Dự án và công việc trong phạm vi bạn được cấp quyền.</p>
               <Link to={`/projects?workspace=${w.id}`} className="mt-4 inline-flex text-sm font-medium text-primary hover:underline">Mở dự án →</Link>
             </Card>

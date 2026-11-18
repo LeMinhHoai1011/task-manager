@@ -1,49 +1,30 @@
-// SmartTask V3.0 Service Worker (PWA, Offline Caching, Web Push)
-const CACHE_NAME = "smarttask-daylight-v1";
-const STATIC_ASSETS = [
-  "/",
-  "/index.html",
-  "/manifest.webmanifest"
-];
-
-self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(STATIC_ASSETS);
-    })
-  );
-  self.skipWaiting();
+// Public shell only. API responses and credentials are never cached.
+const CACHE_NAME = "smarttask-shell-v2";
+const STATIC_ASSETS = ["/index.html", "/manifest.webmanifest"];
+self.addEventListener("install",event=>{
+  event.waitUntil(caches.open(CACHE_NAME).then(cache=>cache.addAll(STATIC_ASSETS)));
+  // Existing tabs opt in through the update banner before activating a new shell.
 });
-
-self.addEventListener("activate", (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) => {
-      return Promise.all(
-        keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
-      );
-    })
-  );
-  self.clients.claim();
+self.addEventListener("message",event=>{if(event.data?.type==="SKIP_WAITING")void self.skipWaiting();});
+self.addEventListener("activate",event=>{
+  event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key.startsWith("smarttask-")&&key!==CACHE_NAME).map(key=>caches.delete(key)))).then(()=>self.clients.claim()));
 });
-
-self.addEventListener("fetch", (event) => {
-  // Bỏ qua các API và SSE requests để không can thiệp vào dynamic data
-  if (event.request.url.includes("/api/") || event.request.url.includes("/ws")) {
-    return;
+self.addEventListener("fetch",event=>{
+  const url=new URL(event.request.url);
+  if(event.request.method!=="GET"||url.origin!==self.location.origin||url.pathname.startsWith("/api/")||url.pathname.startsWith("/actuator/")||url.pathname.startsWith("/ws"))return;
+  if(event.request.mode==="navigate"){
+    event.respondWith(fetch(event.request).then(async response=>{
+      if(response.ok&&response.headers.get("content-type")?.includes("text/html")){
+        try{const cache=await caches.open(CACHE_NAME);await cache.put("/index.html",response.clone());}
+        catch{/* A full cache must not replace a fresh online response with stale HTML. */}
+      }
+      return response;
+    }).catch(async()=>await caches.match("/index.html")||Response.error()));
   }
-  event.respondWith(
-    caches.match(event.request).then((cached) => {
-      return (
-        cached ||
-        fetch(event.request).catch(() => {
-          if (event.request.mode === "navigate") {
-            return caches.match("/index.html");
-          }
-        })
-      );
-    })
-  );
 });
+function notificationTarget(value){
+  try{const url=new URL(value||"/notifications",self.location.origin);return url.origin===self.location.origin?url.pathname+url.search+url.hash:"/notifications";}catch{return "/notifications";}
+}
 
 // Push notification listener
 self.addEventListener("push", (event) => {
@@ -86,7 +67,7 @@ self.addEventListener("push", (event) => {
 // Handle clicking on push notification
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const targetUrl = event.notification.data?.url || "/dashboard";
+  const targetUrl = notificationTarget(event.notification.data?.url);
 
   event.waitUntil(
     clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
@@ -109,7 +90,7 @@ self.addEventListener("notificationaction", (event) => {
     return;
   }
   // "open" action - same as notificationclick
-  const targetUrl = event.notification.data?.url || "/dashboard";
+  const targetUrl = notificationTarget(event.notification.data?.url);
   event.waitUntil(
     clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
       for (const client of clientList) {

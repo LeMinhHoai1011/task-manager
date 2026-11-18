@@ -69,7 +69,6 @@ public final class TaskSort {
       default -> Comparator.comparing(Task::getUpdatedAt,
           Comparator.nullsLast(Comparator.naturalOrder()));
     };
-    c = c.thenComparing(Task::getId);
     return k.desc() ? c.reversed() : c;
   }
 
@@ -78,7 +77,52 @@ public final class TaskSort {
     List<SortKey> keys = parse(sort, order);
     Comparator<Task> c = keyComparator(keys.get(0));
     for (int i = 1; i < keys.size(); i++) c = c.thenComparing(keyComparator(keys.get(i)));
-    return c;
+    Comparator<Task> ids = Comparator.comparing(t -> t.getId().toString());
+    return c.thenComparing(keys.get(0).desc() ? ids.reversed() : ids);
+  }
+
+  public static String canonical(String sort, String order) {
+    return parse(sort, order).stream().map(k -> (k.desc() ? "-" : "+") + k.field())
+        .collect(java.util.stream.Collectors.joining(","));
+  }
+
+  public static Comparable<?> value(Task task, String field) {
+    return switch (field) {
+      case "priority" -> rankPriority(task.getPriority());
+      case "title" -> task.getTitle();
+      case "state" -> task.getState();
+      case "created_at" -> task.getCreatedAt();
+      case "start_at" -> task.getStartAt();
+      case "due_at" -> task.getDueAt();
+      default -> task.getUpdatedAt();
+    };
+  }
+
+  public static jakarta.persistence.criteria.Expression<?> expression(jakarta.persistence.criteria.Root<Task> task,
+      jakarta.persistence.criteria.CriteriaBuilder cb, String field) {
+    if ("priority".equals(field)) return cb.<Integer>selectCase()
+        .when(cb.equal(task.get("priority"), "LOW"), 0).when(cb.equal(task.get("priority"), "HIGH"), 2)
+        .when(cb.equal(task.get("priority"), "URGENT"), 3).otherwise(1);
+    return task.get(switch (field) {
+      case "created_at" -> "createdAt"; case "updated_at" -> "updatedAt";
+      case "start_at" -> "startAt"; case "due_at" -> "dueAt"; default -> field;
+    });
+  }
+
+  public static org.springframework.data.jpa.domain.Specification<Task> ordered(String sort, String order) {
+    var keys = parse(sort, order);
+    return (task, query, cb) -> {
+      if (query.getResultType() != Long.class && query.getResultType() != long.class) {
+        var orders = new java.util.ArrayList<jakarta.persistence.criteria.Order>();
+        for (var key : keys) {
+          var value = expression(task, cb, key.field());
+          orders.add(key.desc() ? cb.desc(value) : cb.asc(value));
+        }
+        orders.add(keys.get(0).desc() ? cb.desc(task.get("id")) : cb.asc(task.get("id")));
+        query.orderBy(orders);
+      }
+      return cb.conjunction();
+    };
   }
 
   /** Canonical order token for cursor encode/decode ("asc"/"desc" of first key). */

@@ -32,7 +32,7 @@ public class AccessController {
     this.tasks=tasks;this.assignments=assignments;this.grants=grants;this.policy=policy;
     this.workflow=workflow;this.rounds=rounds;
   }
-  public record WorkspaceAccess(UUID id,String name,String role,String status,boolean canManage,boolean canCreateProject) {}
+  public record WorkspaceAccess(UUID id,String name,String role,String status,boolean canManage,boolean canCreateProject,String type) {}
   public record ProjectAccess(UUID id,String name,String role,String status,boolean canManage,
       boolean canCreateTask,boolean canLogProgress,boolean metadata,boolean assignment) {}
   public record Access(boolean systemAdmin,List<WorkspaceAccess> workspaces,List<ProjectAccess> projects) {}
@@ -49,7 +49,7 @@ public class AccessController {
       var w=workspaces.findById(m.getWorkspaceId()).orElse(null);
       if(w==null||"DELETED".equals(w.getStatus()))continue;
       boolean manages=managerWorkspace(m.getRole())&&"ACTIVE".equals(w.getStatus());
-      ws.add(new WorkspaceAccess(w.getId(),w.getName(),m.getRole(),w.getStatus(),manages,manages));
+      ws.add(new WorkspaceAccess(w.getId(),w.getName(),m.getRole(),w.getStatus(),manages,manages,w.getType()));
     }
     List<ProjectAccess> ps=new ArrayList<>();
     for(var m:members.findByUserIdAndStatus(actor,"ACTIVE")) {

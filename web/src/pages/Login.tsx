@@ -46,7 +46,7 @@ export default function Login() {
             }
             try {
               await auth.login(em, password);
-              nav("/tasks");
+              nav("/");
             } catch (e: any) {
               // Không render text server: dùng uiMessage trung tính.
               setErr(e?.status === 401 ? t("auth.invalid_credentials") : (e?.uiMessage ?? t("error.generic")));

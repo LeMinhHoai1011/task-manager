@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useMemo } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useBlocker, useSearchParams } from "react-router-dom";
 import { apiFetch } from "../api/client";
 import { useToast } from "../components/ToastContext";
 import {useAccess,type TaskAccess} from "../auth/AccessContext";
@@ -105,11 +105,60 @@ export default function Notes() {
     fetchProjects();
   }, []);
 
-  // Sync editor fields when active note changes
+  const notesRef=useRef(notes);notesRef.current=notes;
+  const drafts=useRef(new Map<string,{title:string;content:string}>());
+  const timers=useRef(new Map<string,ReturnType<typeof setTimeout>>());
+  const saveQueue=useRef(Promise.resolve(true));
+  const blocker=useBlocker(({currentLocation,nextLocation})=>drafts.current.size>0&&currentLocation.pathname!==nextLocation.pathname);
+  const [leaving,setLeaving]=useState(false);
+  useEffect(()=>{if(blocker.state==="blocked")document.getElementById("note-unsaved-navigation")?.focus();},[blocker.state]);
+  const syncedId=useRef<string|null>(null);
+  const [saveError,setSaveError]=useState(false);
+  const [dirty,setDirty]=useState(false);
+  function persistNote(id:string, extra:Partial<NoteItem>={}) {
+    const draft=drafts.current.get(id);
+    const job=saveQueue.current.then(async()=>{
+      const note=notesRef.current.find(n=>n.id===id);if(!note)return false;
+      setSaving(true);
+      try {
+        const response=await apiFetch<any>(`/notes/${id}`,{method:"PUT",ifMatch:String(note.version),body:{title:draft?.title.trim()||note.title||"Ghi chú không tên",content:draft?.content??note.content,...extra}});
+        const updated=response.data??response;
+        notesRef.current=notesRef.current.map(n=>n.id===id?{...n,...updated}:n);
+        setNotes(notesRef.current);
+        if(drafts.current.get(id)===draft)drafts.current.delete(id);
+        setDirty(drafts.current.size>0);setSaveError(false);return true;
+      }catch{setSaveError(true);showToast({type:"error",message:"Chưa lưu được ghi chú. Nội dung nhập vẫn được giữ lại. Hãy thử lưu lại."});return false;}
+      finally{setSaving(false);}
+    });saveQueue.current=job;return job;
+  }
+  function saveNow(id:string){const timer=timers.current.get(id);if(timer)clearTimeout(timer);timers.current.delete(id);return persistNote(id);}
+  useEffect(()=>{
+    const warn=(event:BeforeUnloadEvent)=>{if(drafts.current.size){event.preventDefault();event.returnValue="";}};
+    window.addEventListener("beforeunload",warn);
+    return()=>{window.removeEventListener("beforeunload",warn);for(const id of timers.current.keys())void saveNow(id);};
+  },[]);
+  async function saveAndLeave(){
+    if(leaving||blocker.state!=="blocked")return;
+    setLeaving(true);
+    try{
+      for(const id of Array.from(drafts.current.keys()))await saveNow(id);
+      await saveQueue.current;
+      if(!drafts.current.size)blocker.proceed();
+    }finally{setLeaving(false);}
+  }
+  function discardAndLeave(){
+    if(leaving||blocker.state!=="blocked")return;
+    for(const timer of timers.current.values())clearTimeout(timer);
+    timers.current.clear();drafts.current.clear();setDirty(false);blocker.proceed();
+  }
+  // A save response must not replace text typed after that request began.
   useEffect(() => {
+    if(syncedId.current===activeNote?.id)return;
+    syncedId.current=activeNote?.id??null;
     if (activeNote) {
-      setEditTitle(activeNote.title || "");
-      setEditContent(activeNote.content || "");
+      const draft=drafts.current.get(activeNote.id);
+      setEditTitle(draft?.title??activeNote.title??"");
+      setEditContent(draft?.content??activeNote.content??"");
       setEditScope((activeNote.scope as any) || "PERSONAL");
       setEditTags(activeNote.tags || "");
       setEditPinned(activeNote.isPinned || false);
@@ -124,37 +173,12 @@ export default function Notes() {
     }
   }, [activeNote]);
 
-  // Debounced Auto-save
-  const saveTimeoutRef = useRef<any>(null);
-  const handleContentChange = (newTitle: string, newContent: string) => {
-    if(!editable)return;
-    setEditTitle(newTitle);
-    setEditContent(newContent);
-    if (!selectedId) return;
-
-    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    saveTimeoutRef.current = setTimeout(async () => {
-      setSaving(true);
-      try {
-        const payload = {
-          title: newTitle.trim() || "Ghi chú không tên",
-          content: newContent,
-        };
-        const updated = await apiFetch<any>(`/notes/${selectedId}`, {
-          method: "PUT",
-          ifMatch: String(activeNote?.version),
-          body: JSON.stringify(payload),
-        });
-        const noteData = updated?.data || updated;
-        setNotes((prev) =>
-          prev.map((n) => (n.id === selectedId ? { ...n, ...noteData } : n))
-        );
-      } catch (e: any) {
-        showToast({ type: "error", message: "Chưa lưu được ghi chú. Giữ lại nội dung và tải lại phiên bản mới trước khi thử lại." });
-      } finally {
-        setSaving(false);
-      }
-    }, 800);
+  const handleContentChange = (newTitle:string,newContent:string) => {
+    if(!editable||!selectedId)return;
+    setEditTitle(newTitle);setEditContent(newContent);setDirty(true);
+    drafts.current.set(selectedId,{title:newTitle,content:newContent});
+    const timer=timers.current.get(selectedId);if(timer)clearTimeout(timer);
+    const id=selectedId;timers.current.set(id,setTimeout(()=>{timers.current.delete(id);void persistNote(id);},800));
   };
 
   const handleCreateNote = async () => {
@@ -202,11 +226,14 @@ export default function Notes() {
 
   const handleDeleteNote = async () => {
     if (!selectedId || !activeNote || !editable) return;
+    if(saving)return;
+    const timer=timers.current.get(selectedId);if(timer)clearTimeout(timer);timers.current.delete(selectedId);
     const deletedNote = activeNote;
     const deletedId = selectedId;
 
     try {
       await apiFetch(`/notes/${deletedId}`, { method: "DELETE" });
+      drafts.current.delete(deletedId);setDirty(drafts.current.size>0);
       setNotes((prev) => prev.filter((n) => n.id !== deletedId));
       setSelectedId(null);
       setMobileEditorOpen(false);
@@ -235,28 +262,8 @@ export default function Notes() {
 
   const handleMetadataChange = async (updates: Partial<NoteItem>) => {
     if (!selectedId || !editable) return;
-    try {
-      const payload = {
-        title: editTitle,
-        content: editContent,
-        scope: updates.scope ?? editScope,
-        tags: updates.tags !== undefined ? updates.tags : editTags,
-        isPinned: updates.isPinned !== undefined ? updates.isPinned : editPinned,
-        projectId: updates.projectId !== undefined ? updates.projectId : (editProjectId || null),
-      };
-      const res = await apiFetch<any>(`/notes/${selectedId}`, {
-        method: "PUT",
-        ifMatch: String(activeNote?.version),
-        body: JSON.stringify(payload),
-      });
-      const updated = res?.data || res;
-      setNotes((prev) =>
-        prev.map((n) => (n.id === selectedId ? { ...n, ...updated } : n))
-      );
-      showToast({ type: "success", message: "Đã lưu thông tin ghi chú" });
-    } catch {
-      showToast({ type: "error", message: "Lỗi lưu thông tin ghi chú" });
-    }
+    const timer=timers.current.get(selectedId);if(timer)clearTimeout(timer);timers.current.delete(selectedId);
+    await persistNote(selectedId,updates);
   };
 
   // Insert markdown helper tokens
@@ -308,15 +315,25 @@ export default function Notes() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-5rem)]">
+      {saveError&&<p role="alert" className="notice">Chưa lưu được thay đổi. Giữ trang này mở và nhấn Lưu ngay để thử lại.</p>}
+      {editable&&selectedId&&<div className="flex items-center justify-end gap-3 pb-2"><span role="status" className="text-xs text-slate-500">{saving?"Đang lưu…":dirty?"Có thay đổi chưa lưu":"Đã lưu"}</span><button className="btn btn-secondary btn-sm" disabled={saving} onClick={()=>void saveNow(selectedId)}>Lưu ngay</button></div>}
+      {blocker.state==="blocked"&&<div id="note-unsaved-navigation" tabIndex={-1} role="alertdialog" aria-label="Ghi chú chưa lưu" className="notice">
+        <p>Bạn có ghi chú chưa lưu. Lưu thành công trước khi rời trang hoặc chọn bỏ thay đổi.</p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <button className="btn btn-primary" disabled={leaving} onClick={()=>void saveAndLeave()}>{leaving?"Đang lưu…":"Lưu và rời trang"}</button>
+          <button className="btn btn-secondary" disabled={leaving} onClick={()=>blocker.reset()}>Ở lại</button>
+          <button className="btn btn-danger" disabled={leaving||saving} onClick={discardAndLeave}>Bỏ thay đổi và rời trang</button>
+        </div>
+      </div>}
       {/* Top action bar */}
       <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
             <AppIcon name="files" size={24} className="text-primary" />
-            <span>Ghi chú</span>
+            <span>Thông tin đã lưu</span>
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Quản lý ghi chú cá nhân, dự án, chia sẻ nhóm với Markdown editor
+            Lưu nội dung cần nhớ. Phân biệt rõ ghi chú riêng và thông tin chia sẻ trong dự án.
           </p>
         </div>
         <div className="flex flex-wrap gap-2"><select aria-label="Nơi tạo ghi chú" value={createProject} onChange={e=>setCreateProject(e.target.value)}><option value="">Cá nhân (riêng tư)</option>{access.projects.filter(p=>p.canManage).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select><button

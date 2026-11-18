@@ -54,8 +54,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
   }
 
   private static String clientKey(HttpServletRequest request) {
-    String fwd = request.getHeader("X-Forwarded-For");
-    if (fwd != null && !fwd.isBlank()) return fwd.split(",")[0].trim();
+    // Only the trusted edge/ForwardedHeaderFilter may resolve proxy headers.
+    // Direct clients must not reset their bucket by supplying arbitrary XFF.
     String ip = request.getRemoteAddr();
     return ip == null ? "unknown" : ip;
   }

@@ -8,7 +8,12 @@ if (import.meta.env.PROD && "serviceWorker" in navigator) {
     navigator.serviceWorker
       .register("/sw.js")
       .then((registration) => {
-        console.log("SW registered: ", registration.scope);
+        const announce=()=>window.dispatchEvent(new CustomEvent("smarttask:update",{detail:registration}));
+        if(registration.waiting)announce();
+        registration.addEventListener("updatefound",()=>{
+          const worker=registration.installing;
+          worker?.addEventListener("statechange",()=>{if(worker.state==="installed"&&navigator.serviceWorker.controller)announce();});
+        });
       })
       .catch((registrationError) => {
         console.log("SW registration failed: ", registrationError);

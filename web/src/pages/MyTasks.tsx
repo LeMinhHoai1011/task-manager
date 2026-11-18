@@ -198,9 +198,9 @@ export default function MyTasks() {
   return (
     <section className="personal-tasks personal-workspace mx-auto max-w-6xl space-y-5">
       {/* Page Heading & View mode Switcher */}
-      <header className="page-heading flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
+      <header className="workspace-heading page-heading flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
         <div>
-          <h1 className="page-title text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
+          <p className="eyebrow">KHÔNG GIAN CÁ NHÂN</p><h1 className="page-title text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
             <AppIcon name="personal" size={24} className="text-blue-600" />
             <span>Việc của tôi</span>
           </h1>

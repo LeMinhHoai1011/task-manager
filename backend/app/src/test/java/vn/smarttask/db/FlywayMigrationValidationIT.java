@@ -42,15 +42,17 @@ class FlywayMigrationValidationIT {
   @Autowired private Flyway flyway;
 
   @Test
-  @DisplayName("Flyway reaches head version 12 and all migrations are successful")
-  void flywayReachesHeadVersion12() {
+  @DisplayName("Flyway reaches head version 17 and all migrations are successful")
+  void flywayReachesHeadVersion17() {
     assertNotNull(flyway, "Flyway bean must be injected");
     MigrationInfo current = flyway.info().current();
     assertNotNull(current, "Current migration must not be null");
-    assertEquals("12", current.getVersion().getVersion(), "Flyway head migration must be V12");
+    assertEquals("17", current.getVersion().getVersion(), "Flyway head migration must be V17");
 
     MigrationInfo[] applied = flyway.info().applied();
-    assertTrue(applied.length >= 12, "At least 12 migrations must have been applied");
+    assertEquals(17, applied.length, "All 17 migrations must be applied");
+    assertEquals(0, flyway.info().pending().length);
+    assertTrue(flyway.validateWithResult().validationSuccessful);
     for (MigrationInfo info : applied) {
       assertTrue(info.getState().isApplied(), "Migration " + info.getScript() + " must be applied");
     }
@@ -101,7 +103,7 @@ class FlywayMigrationValidationIT {
   void flywayMigrationIsIdempotent() {
     var result = flyway.migrate();
     assertEquals(0, result.migrationsExecuted, "Re-running migration should execute 0 new migrations");
-    assertEquals("12", flyway.info().current().getVersion().getVersion(), "Version remains 12");
+    assertEquals("17", flyway.info().current().getVersion().getVersion(), "Version remains 17");
   }
 
   @Test

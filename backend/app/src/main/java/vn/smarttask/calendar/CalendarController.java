@@ -73,13 +73,24 @@ public class CalendarController {
   @RequiresPermission("calendar:read")
   public ResponseEntity<ApiResult<List<Object>>> reminders(@RequestParam(defaultValue="0") int page,@RequestParam(defaultValue="100") int size) {
     UUID actor = CurrentActor.userId();
-    var items = reminders.findByUserId(actor,org.springframework.data.domain.PageRequest.of(Math.max(page,0),Math.max(1,Math.min(size,100)),org.springframework.data.domain.Sort.by("createdAt").descending().and(org.springframework.data.domain.Sort.by("id")))).getContent().stream()
-        .map(r -> (Object) Map.of("id", r.getId().toString(),
-            "task_id", r.getTaskId().toString(),
-            "remind_at", String.valueOf(r.getRemindAt()),
-            "status", r.getStatus(),
-            "paused", r.isPaused()))
-        .toList();
+    var rulePage = reminders.findByUserId(actor,org.springframework.data.domain.PageRequest.of(Math.max(page,0),Math.max(1,Math.min(size,100)),org.springframework.data.domain.Sort.by("createdAt").descending().and(org.springframework.data.domain.Sort.by("id")))).getContent();
+    var taskTitles = tasks.findAllById(rulePage.stream().map(r -> r.getTaskId()).distinct().toList()).stream()
+        .collect(java.util.stream.Collectors.toMap(t -> t.getId(), t -> t));
+    var items = rulePage.stream().map(r -> {
+      var row = new java.util.LinkedHashMap<String,Object>();
+      row.put("id", r.getId()); row.put("task_id", r.getTaskId());
+      row.put("remind_at", r.getRemindAt()); row.put("status", r.getStatus()); row.put("paused", r.isPaused());
+      var task = taskTitles.get(r.getTaskId());
+      boolean readable = false;
+      if (task != null && task.getDeletedAt() == null) {
+        if ("PERSONAL".equals(task.getScope())) readable = actor.equals(task.getOwnerUserId());
+        else try { policy.requireTaskRead(actor, task.getId()); readable = true; }
+        catch (AppException e) { if (e.getHttpStatus().value()!=403 && e.getHttpStatus().value()!=404) throw e; }
+      }
+      row.put("available", readable);
+      if (readable) { row.put("title", task.getTitle()); row.put("scope", task.getScope()); }
+      return (Object)row;
+    }).toList();
     return ResponseEntity.ok(ApiResult.ok(items, "reminder.list.success"));
   }
 
@@ -96,6 +107,37 @@ public class CalendarController {
         java.time.OffsetDateTime.parse((String) body.get("remind_at")));
     return ResponseEntity.ok(ApiResult.ok(java.util.Map.of("id", r.getId().toString()),
         "reminder.create.success"));
+  }
+
+  @PostMapping("/reminders/personal")
+  @RequiresPermission("calendar:write")
+  public ResponseEntity<ApiResult<Object>> appointment(@RequestBody CalendarService.Appointment body,
+      @RequestHeader(value="Idempotency-Key", required=false) String key) {
+    var rule = calendar.createAppointment(CurrentActor.userId(), body, key);
+    return ResponseEntity.ok(ApiResult.ok(Map.of("id", rule.getId(), "task_id", rule.getTaskId()), "appointment.create.success"));
+  }
+
+  public record ReminderTime(java.time.OffsetDateTime remind_at) {}
+  @PutMapping("/reminders/{id}")
+  @RequiresPermission("calendar:write")
+  public ResponseEntity<ApiResult<Object>> update(@PathVariable UUID id, @RequestBody ReminderTime body) {
+    UUID actor = CurrentActor.userId();
+    var rule = reminders.findById(id).filter(r -> actor.equals(r.getUserId()))
+        .orElseThrow(() -> AppException.notFound("Reminder not found"));
+    requireReminderAccess(actor, rule.getTaskId());
+    calendar.updateReminder(actor, id, body.remind_at(), false);
+    return ResponseEntity.ok(ApiResult.ok(null, "reminder.update.success"));
+  }
+
+  @PostMapping("/reminders/{id}/cancel")
+  @RequiresPermission("calendar:write")
+  public ResponseEntity<ApiResult<Object>> cancel(@PathVariable UUID id) {
+    UUID actor = CurrentActor.userId();
+    var rule = reminders.findById(id).filter(r -> actor.equals(r.getUserId()))
+        .orElseThrow(() -> AppException.notFound("Reminder not found"));
+    requireReminderAccess(actor, rule.getTaskId());
+    calendar.updateReminder(actor, id, null, true);
+    return ResponseEntity.ok(ApiResult.ok(null, "reminder.cancel.success"));
   }
 
   @PostMapping("/reminders/{id}/pause")

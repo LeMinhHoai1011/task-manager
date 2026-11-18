@@ -75,6 +75,7 @@ class StorageIT extends ItgBase {
   @Autowired StreamTicketRepository streamTickets;
   @Autowired FileAccessEventRepository fileAccessEvents;
   @Value("${file.gateway.minio-bucket}") String bucket;
+  @Value("${file.gateway.minio-endpoint}") String endpoint;
 
   /**
    * The S3Mock container's {@code initialBuckets} env is not honoured on every
@@ -338,7 +339,7 @@ class StorageIT extends ItgBase {
     // assertion is the empty bucket policy above.
     HttpClient http = HttpClient.newHttpClient();
     HttpRequest req = HttpRequest.newBuilder(
-        URI.create("http://localhost:9090/" + bucket + "/storageit/probe-no-such-key"))
+        URI.create(endpoint.replaceAll("/$", "") + "/" + bucket + "/storageit/probe-no-such-key"))
         .GET().build();
     int code = http.send(req, HttpResponse.BodyHandlers.discarding()).statusCode();
     assertTrue(code == 403 || code == 404,

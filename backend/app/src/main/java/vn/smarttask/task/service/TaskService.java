@@ -21,6 +21,8 @@ import vn.smarttask.project.repo.ProjectRepository;
 import vn.smarttask.realtime.RealtimePublisher;
 import vn.smarttask.task.DependencyChecker;
 import vn.smarttask.task.SubtaskDepthGuard;
+import vn.smarttask.task.TaskSort;
+import vn.smarttask.task.TaskCursor;
 import vn.smarttask.task.entity.*;
 import vn.smarttask.task.repo.*;
 import vn.smarttask.workspace.repo.WorkspaceRepository;
@@ -45,6 +47,103 @@ public class TaskService {
   private final AppUserRepository users;
   private final AuditService audit;
   private final OutboxService outbox;
+
+  @org.springframework.beans.factory.annotation.Autowired
+  private vn.smarttask.security.PolicyEnforcer taskPolicy;
+
+  public record Filter(UUID projectId, String state, String priority, UUID assigneeId, String tag,
+      Boolean blocked, Integer depth, Boolean overdue, String sort, String order, String cursor, int limit) {}
+  public record TaskPage(List<Task> items, String next, long total, int size) {}
+
+  @Transactional(readOnly = true)
+  public TaskPage search(UUID actor, Filter filter) {
+    var projectFilter=filter.projectId();var state=filter.state();var priority=filter.priority();
+    var assigneeId=filter.assigneeId();var tag=filter.tag();var blocked=filter.blocked();
+    var depth=filter.depth();var overdue=filter.overdue();var sort=filter.sort();
+    var order=filter.order();var cursor=filter.cursor();int limit=filter.limit();
+    org.springframework.data.jpa.domain.Specification<Task> scope = taskPolicy.readableTasks(actor);
+    OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+    scope = scope.and((task, query, cb) -> {
+      var conditions = new java.util.ArrayList<jakarta.persistence.criteria.Predicate>();
+      if (projectFilter != null) conditions.add(cb.equal(task.get("projectId"), projectFilter));
+      if (state != null) conditions.add(cb.equal(task.get("state"), state.toUpperCase(java.util.Locale.ROOT)));
+      if (priority != null) conditions.add(cb.equal(task.get("priority"), priority.toUpperCase(java.util.Locale.ROOT)));
+      if (blocked != null) conditions.add(cb.equal(task.get("blockedFlag"), blocked));
+      if (depth != null) conditions.add(cb.equal(task.get("depth"), depth));
+      if (assigneeId != null) {
+        var match = query.subquery(UUID.class);
+        var assignment = match.from(vn.smarttask.task.entity.TaskAssignment.class);
+        match.select(assignment.get("id")).where(cb.equal(assignment.get("taskId"), task.get("id")),
+            cb.equal(assignment.get("userId"), assigneeId), cb.equal(assignment.get("status"), "ACTIVE"));
+        conditions.add(cb.exists(match));
+      }
+      if (tag != null) {
+        var match = query.subquery(UUID.class);
+        var label = match.from(vn.smarttask.task.entity.TaskTag.class);
+        match.select(label.get("id")).where(cb.equal(label.get("taskId"), task.get("id")), cb.equal(label.get("tag"), tag));
+        conditions.add(cb.exists(match));
+      }
+      if (overdue != null) {
+        var late = cb.and(cb.isNotNull(task.get("dueAt")), cb.lessThan(task.get("dueAt"), now),
+            cb.not(task.get("state").in("COMPLETED", "CANCELLED")));
+        conditions.add(overdue ? late : cb.or(cb.isNull(task.get("dueAt")),
+            cb.greaterThanOrEqualTo(task.get("dueAt"), now), task.get("state").in("COMPLETED", "CANCELLED")));
+      }
+      return cb.and(conditions.toArray(jakarta.persistence.criteria.Predicate[]::new));
+    });
+    // Validate the sort before any database read and keep count independent of the cursor.
+    var ordered = TaskSort.ordered(sort, order);
+    long total = tasks.count(scope);
+    var pageScope = scope;
+    if (cursor != null && !cursor.isBlank()) {
+      String currentCursor = cursor;
+      if (!cursor.startsWith("v2.")) {
+        UUID anchorId = TaskCursor.legacyId(cursor);
+        Task anchor = tasks.findOne(scope.and((task, query, cb) -> cb.equal(task.get("id"), anchorId)))
+            .orElseThrow(() -> AppException.badRequest("CURSOR_INVALID", "Cursor task is no longer visible"));
+        currentCursor = TaskCursor.nextCursor(anchor, sort, order);
+      }
+      pageScope = pageScope.and(TaskCursor.after(TaskCursor.decode(currentCursor, sort, order), sort, order));
+    }
+    int pageSize = Math.min(Math.max(limit, 1), 100);
+    var rows = tasks.findAll(pageScope.and(ordered),
+        org.springframework.data.domain.PageRequest.of(0, pageSize + 1)).getContent();
+    boolean more = rows.size() > pageSize;
+    var visible = rows.subList(0, Math.min(pageSize, rows.size()));
+    String next = more ? TaskCursor.nextCursor(visible.get(visible.size() - 1), sort, order) : null;
+    return new TaskPage(List.copyOf(visible), next, total, pageSize);
+  }
+
+
+  @org.springframework.beans.factory.annotation.Autowired
+  private TaskTagRepository taskTags;
+
+  @Transactional
+  public Task batchMetadata(UUID actor, UUID id, TaskBatchService.Action action, String value, long expected) {
+    requireActiveUser(actor);
+    Task task = tasks.findByIdForUpdate(id).orElseThrow(() -> AppException.notFound("Task not found"));
+    if (task.getDeletedAt() != null) throw AppException.notFound("Task not found");
+    requireWritableProject(task.getProjectId());
+    requireParticipation(task.getProjectId(), actor, "task.update");
+    checkVersion(task, expected);
+    requireNotLocked(task, "task.update", actor);
+    switch (action) {
+      case PRIORITY -> task.setPriority(value);
+      case ADD_TAG -> {
+        String tag = value.trim();
+        if (!taskTags.existsByTaskIdAndTag(id, tag)) taskTags.save(new TaskTag(UuidV7.generate(), id, tag));
+      }
+      case REMOVE_TAG -> taskTags.deleteAll(taskTags.findByTaskId(id).stream()
+          .filter(tag -> tag.getTag().equals(value.trim())).toList());
+      default -> throw AppException.badRequest("BATCH_INVALID", "Unsupported metadata action");
+    }
+    task.setVersion(task.getVersion() + 1);
+    tasks.save(task);
+    audit.append(actor, "task.batch." + action.name().toLowerCase(java.util.Locale.ROOT), "task", id, "ALLOWED", null, "{}");
+    outbox.emit("task", id, "task.updated", "{}");
+    signal(task, "TASK_UPDATED");
+    return task;
+  }
 
   public TaskService(TaskRepository tasks, ProjectRepository projects,
       ProjectMembershipRepository projectMembers, WorkspaceRepository workspaces,
@@ -288,7 +387,8 @@ public class TaskService {
   @Transactional
   public Task setBlocked(UUID actorId, UUID taskId, boolean flag, String reason, long expectedVersion) {
     requireActiveUser(actorId);
-    Task t = requireTask(taskId);
+    Task t = tasks.findByIdForUpdate(taskId).orElseThrow(() -> AppException.notFound("Task not found"));
+    if (t.getDeletedAt() != null) throw AppException.notFound("Task not found");
     requireParticipation(t.getProjectId(), actorId, "task.blocked.set");
     checkVersion(t, expectedVersion);
     requireNotLocked(t, "task.blocked.set", actorId);
@@ -335,6 +435,8 @@ public class TaskService {
   public TaskDependency addDependency(UUID actorId, UUID taskId, UUID dependsOnId) {
     requireActiveUser(actorId);
     Task t = requireTask(taskId);
+    // Serialize graph checks and inserts for a project, including disjoint edges.
+    projects.findByIdForUpdate(t.getProjectId()).orElseThrow(() -> AppException.notFound("Project not found"));
     Task other = requireTask(dependsOnId);
     requireParticipation(t.getProjectId(), actorId, "task.dependency.add");
     requireNotLocked(t, "task.dependency.add", actorId);

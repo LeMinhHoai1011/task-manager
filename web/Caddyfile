@@ -33,7 +33,13 @@
 	}
 
 	# SPA fallback + compression for static files only.
+	handle /sw.js {
+		header Cache-Control "no-store"
+		file_server
+	}
 	handle {
+		@shell not path /assets/*
+		header @shell Cache-Control "no-cache"
 		encode zstd gzip
 		try_files {path} /index.html
 		file_server

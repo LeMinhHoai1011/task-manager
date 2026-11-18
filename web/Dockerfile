@@ -1,6 +1,7 @@
 # Build the SPA and serve it with Caddy (automatic HTTPS + reverse proxy).
 FROM node:22-alpine AS build
 WORKDIR /src
+ENV NODE_OPTIONS="--max-old-space-size=512"
 RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
 
 COPY package.json pnpm-lock.yaml ./
@@ -12,8 +13,10 @@ COPY . .
 # setup; set VITE_API_BASE only when hosting the SPA on another origin.
 ARG VITE_API_BASE=/api/v1
 ARG VITE_ENABLE_AI=true
+ARG VITE_SECURE_BROWSER_SESSION=false
 ENV VITE_API_BASE=$VITE_API_BASE
 ENV VITE_ENABLE_AI=$VITE_ENABLE_AI
+ENV VITE_SECURE_BROWSER_SESSION=$VITE_SECURE_BROWSER_SESSION
 
 RUN pnpm build
 

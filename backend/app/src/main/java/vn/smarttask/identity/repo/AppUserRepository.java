@@ -7,7 +7,10 @@ import org.springframework.data.jpa.repository.*;
 import org.springframework.data.repository.query.Param;
 import vn.smarttask.identity.entity.AppUser;
 
-public interface AppUserRepository extends JpaRepository<AppUser, UUID> {
+public interface AppUserRepository extends JpaRepository<AppUser, UUID>, JpaSpecificationExecutor<AppUser> {
+  @Lock(LockModeType.PESSIMISTIC_WRITE)
+  @Query("select u from AppUser u where u.id = :id")
+  Optional<AppUser> findByIdForUpdate(@Param("id") UUID id);
   Optional<AppUser> findByUsernameIgnoreCase(String username);
   Optional<AppUser> findByEmailIgnoreCase(String email);
   /** F3 §7 accounts alias: pending-approval queue, oldest first. */

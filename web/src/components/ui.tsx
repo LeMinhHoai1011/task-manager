@@ -96,7 +96,7 @@ export function Badge({
 export function EmptyState({ title, description, action }: { title: string; description?: string; action?: ReactNode }) {
   return (
     <div className="empty-state">
-      <p className="font-medium text-slate-700">{title}</p>
+      <p className="font-medium text-slate-700 dark:text-slate-200">{title}</p>
       {description && <p className="mt-1">{description}</p>}
       {action && <div className="mt-3 flex justify-center">{action}</div>}
     </div>
@@ -118,7 +118,7 @@ export function ErrorAlert({ message, onRetry }: { message: string | null; onRet
 
 export function Spinner({ label = "Loading…" }: { label?: string }) {
   return (
-    <div className="flex items-center gap-2 text-sm text-slate-500" role="status" aria-live="polite">
+    <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-300" role="status" aria-live="polite">
       <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-primary" />
       {label}
     </div>

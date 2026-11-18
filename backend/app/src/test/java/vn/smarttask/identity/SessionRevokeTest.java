@@ -179,7 +179,7 @@ class SessionRevokeTest {
     when(users.findById(user)).thenReturn(Optional.of(u));
     UserRefreshToken rt = new UserRefreshToken(UuidV7.generate(), user, sid, "hash",
         OffsetDateTime.now(ZoneOffset.UTC).plusDays(7));
-    when(refreshTokens.findByTokenHash(any())).thenReturn(Optional.of(rt));
+    when(refreshTokens.findByTokenHashForUpdate(any())).thenReturn(Optional.of(rt));
     UserSession revoked = activeSession(sid, user);
     revoked.setActive(false);
     revoked.setStatus("REVOKED_LOGOUT");

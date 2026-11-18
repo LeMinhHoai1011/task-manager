@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useAuth } from "../auth/AuthContext";
+import { useAccess, interfaceProfile } from "../auth/AccessContext";
 import { useTheme } from "../components/ThemeContext";
 import { useToast } from "../components/ToastContext";
 import { apiFetch } from "../api/client";
@@ -16,6 +17,7 @@ interface DeviceItem {
 
 export default function Settings() {
   const { user } = useAuth();
+  const profile=interfaceProfile(useAccess());
   const { theme, setTheme } = useTheme();
   const { showToast } = useToast();
 
@@ -26,15 +28,28 @@ export default function Settings() {
   // Notifications preference state
   const [notifyPreferences, setNotifyPreferences] = useState<{ [type: string]: boolean }>({
     TASK_ASSIGNED: true,
-    DEADLINE_WARNING: true,
-    WORKFLOW_STATUS: true,
-    COMMENT_NEW: true,
-    PROJECT_UPDATE: true,
+    TASK_REMINDER_FIRE:true,
+    TASK_DEADLINE_SOON:true,
+    TASK_DEADLINE_OVERDUE:true,
+    TASK_WORKFLOW_T_04:true,
+    TASK_WORKFLOW_T_05:true,
+    TASK_COMMENT_ADDED:true,
+    TEAM_MEMBER_ADDED:true,
   });
 
+  const [preferencesLoaded,setPreferencesLoaded]=useState(false);
+  const [preferenceBusy,setPreferenceBusy]=useState(false);
   const [quietHoursStart, setQuietHoursStart] = useState("22:00");
   const [quietHoursEnd, setQuietHoursEnd] = useState("07:00");
   const [quietHoursEnabled, setQuietHoursEnabled] = useState(false);
+  const [quietLoaded,setQuietLoaded]=useState(false),[quietSaving,setQuietSaving]=useState(false);
+  const [quietError,setQuietError]=useState("");
+  const [quietTimezone,setQuietTimezone]=useState(Intl.DateTimeFormat().resolvedOptions().timeZone);
+  async function saveQuietHours(){setQuietSaving(true);setQuietError("");try{
+    await apiFetch("/reminders/preferences",{method:"PUT",body:{quiet_hours_enabled:quietHoursEnabled,quiet_hours_start:quietHoursStart,quiet_hours_end:quietHoursEnd,timezone:quietTimezone}});
+    showToast({type:"success",message:"Đã lưu giờ yên lặng vào tài khoản."});
+  }catch(e:any){setQuietError(e.uiMessage??"Không thể lưu giờ yên lặng.");}finally{setQuietSaving(false);}}
+
 
   // Devices & Push
   const [devices, setDevices] = useState<DeviceItem[]>([]);
@@ -62,6 +77,7 @@ export default function Settings() {
     }
     loadDevices();
     loadPreferences();
+    apiFetch<any>("/reminders/preferences").then(res=>{const p=res.data??res;setQuietHoursEnabled(p.quiet_hours_enabled);setQuietHoursStart(p.quiet_hours_start??"22:00");setQuietHoursEnd(p.quiet_hours_end??"07:00");setQuietTimezone(p.timezone??Intl.DateTimeFormat().resolvedOptions().timeZone);setQuietLoaded(true);}).catch(()=>setQuietError("Không tải được giờ yên lặng. Hãy tải lại trang trước khi chỉnh sửa."));
     apiFetch<any>("/notifications/vapid/subscription-status").then((res) => {
       setPushDeliveryEnabled((res?.data ?? res)?.delivery_status === "ENABLED");
     }).catch(() => setPushDeliveryEnabled(false));
@@ -83,22 +99,23 @@ export default function Settings() {
       items.forEach((p) => {
         map[p.type] = !p.muted;
       });
-      setNotifyPreferences(map);
-    } catch {}
+      setNotifyPreferences(map);setPreferencesLoaded(true);
+    } catch {showToast({type:"error",message:"Không tải được cài đặt thông báo. Hãy tải lại trang."});}
   };
 
   const handleTogglePreference = async (type: string) => {
-    const nextVal = !notifyPreferences[type];
-    setNotifyPreferences((prev) => ({ ...prev, [type]: nextVal }));
+    if(preferenceBusy)return;
+    const nextVal = !notifyPreferences[type];setPreferenceBusy(true);
     try {
       await apiFetch(`/notifications/preferences`, {
         method: "PUT",
         body: JSON.stringify({ type, muted: !nextVal }),
       });
+      setNotifyPreferences(prev=>({...prev,[type]:nextVal}));
       showToast({ type: "success", message: "Đã lưu cài đặt thông báo" });
     } catch {
       showToast({ type: "error", message: "Lỗi lưu cài đặt thông báo" });
-    }
+    }finally{setPreferenceBusy(false);}
   };
 
   const handleSubscribeWebPush = async () => {
@@ -218,7 +235,7 @@ export default function Settings() {
       await apiFetch(`/auth/change-password`, {
         method: "POST",
         body: JSON.stringify({
-          current_password: currentPassword,
+          old_password: currentPassword,
           new_password: newPassword,
         }),
       });
@@ -239,7 +256,7 @@ export default function Settings() {
       <div>
         <h1 className="page-title text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
           <AppIcon name="settings" size={24} className="text-primary" />
-          <span>Cài đặt hệ thống</span>
+          <span>Cài đặt cá nhân</span>
         </h1>
         <p className="page-subtitle text-xs text-slate-500 mt-1">
           Quản lý tài khoản, giao diện sáng/tối, thông báo đẩy Web Push, thiết bị và bảo mật.
@@ -294,12 +311,12 @@ export default function Settings() {
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-500 mb-1">
-                  Vai trò tài khoản hệ thống
+                  Giao diện theo quyền hiện tại
                 </label>
                 <input
                   type="text"
                   disabled
-                  value={user?.role || "Chưa xác định"}
+                  value={profile.label}
                   className="input text-xs bg-slate-50 dark:bg-slate-850 cursor-not-allowed font-semibold text-primary"
                 />
               </div>
@@ -407,10 +424,13 @@ export default function Settings() {
               <div className="space-y-3">
                 {[
                   { id: "TASK_ASSIGNED", title: "Khi được giao công việc mới" },
-                  { id: "DEADLINE_WARNING", title: "Cảnh báo sắp đến hạn (trong 24h) hoặc quá hạn" },
-                  { id: "WORKFLOW_STATUS", title: "Khi công việc được duyệt hoặc yêu cầu sửa đổi" },
-                  { id: "COMMENT_NEW", title: "Khi có bình luận mới trong công việc tham gia" },
-                  { id: "PROJECT_UPDATE", title: "Khi có cập nhật tiến độ dự án mới" },
+                  { id: "TASK_REMINDER_FIRE", title: "Nhắc hẹn cá nhân và công việc đã đặt" },
+                  { id: "TASK_DEADLINE_SOON", title: "Công việc sắp đến hạn" },
+                  { id: "TASK_DEADLINE_OVERDUE", title: "Công việc quá hạn" },
+                  { id: "TASK_WORKFLOW_T_04", title: "Công việc đã được duyệt" },
+                  { id: "TASK_WORKFLOW_T_05", title: "Công việc cần chỉnh sửa" },
+                  { id: "TASK_COMMENT_ADDED", title: "Khi có bình luận mới trong công việc tham gia" },
+                  { id: "TEAM_MEMBER_ADDED", title: "Thay đổi thành viên và vai trò trong nhóm" },
                 ].map((item) => (
                   <label
                     key={item.id}
@@ -421,6 +441,7 @@ export default function Settings() {
                     </span>
                     <input
                       type="checkbox"
+                      disabled={!preferencesLoaded||preferenceBusy}
                       checked={!!notifyPreferences[item.id]}
                       onChange={() => handleTogglePreference(item.id)}
                       className="h-4 w-4 rounded text-primary"
@@ -434,14 +455,16 @@ export default function Settings() {
                 <div className="flex items-center justify-between">
                   <div>
                     <h4 className="font-bold text-sm text-slate-900 dark:text-white">
-                      Giờ yên lặng (Quiet Hours)
+                      Giờ yên lặng
                     </h4>
                     <p className="text-xs text-slate-500">
-                      Không làm phiền thông báo đẩy trong khung giờ nghỉ
+                      Trì hoãn thông báo thường trong khung giờ nghỉ
                     </p>
                   </div>
                   <input
                     type="checkbox"
+                    aria-label="Bật giờ yên lặng"
+                    disabled={!quietLoaded||quietSaving}
                     checked={quietHoursEnabled}
                     onChange={(e) => setQuietHoursEnabled(e.target.checked)}
                     className="h-4 w-4 rounded text-primary"
@@ -470,6 +493,13 @@ export default function Settings() {
                     </div>
                   </div>
                 )}
+                <label className="block text-xs text-slate-500">Múi giờ cho giờ yên lặng
+                  <select className="select mt-1" value={quietTimezone} disabled={!quietLoaded||quietSaving} onChange={e=>setQuietTimezone(e.target.value)}>
+                    {Array.from(new Set([quietTimezone,Intl.DateTimeFormat().resolvedOptions().timeZone,"Asia/Ho_Chi_Minh","Asia/Bangkok","UTC","Europe/London","America/New_York"])).map(zone=><option key={zone} value={zone}>{zone}</option>)}
+                  </select>
+                </label>
+                {quietError&&<p role="alert" className="text-sm text-red-600">{quietError}</p>}
+                <button className="btn btn-primary" disabled={!quietLoaded||quietSaving} onClick={()=>void saveQuietHours()}>{quietSaving?"Đang lưu…":"Lưu giờ yên lặng"}</button>
               </div>
             </div>
           )}

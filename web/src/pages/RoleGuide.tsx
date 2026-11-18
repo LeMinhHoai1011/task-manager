@@ -1,9 +1,11 @@
 import {Link} from "react-router-dom";
-import {useAccess,roleLabel} from "../auth/AccessContext";
+import {useAccess,roleLabel,interfaceProfile} from "../auth/AccessContext";
 export default function RoleGuide(){
   const access=useAccess();
+  const profile=interfaceProfile(access);
   return <section className="personal-tasks mx-auto max-w-5xl space-y-4"><h1 className="page-title">Vai trò và việc cần làm</h1>
     <p>Quyền được xác định riêng trong từng Workspace và Project. Công việc cá nhân chỉ thuộc bạn. Workspace cá nhân không mời thêm thành viên; chức năng mời cộng tác áp dụng cho Workspace nhóm.</p>
+    {!access.loading&&!access.error&&<article className="card"><h2>Giao diện của bạn: {profile.label}</h2><p>{profile.description}</p><Link className="btn btn-primary" to={profile.home}>Mở giao diện theo vai trò</Link></article>}
     {access.loading&&<p role="status">Đang tải quyền…</p>}{access.error&&<p role="alert">{access.error}<button onClick={access.reload}>Tải lại quyền</button></p>}
     <div className="overflow-x-auto"><table className="table"><thead><tr><th>Vai trò Workspace</th><th>Việc cần làm</th><th>Giới hạn</th></tr></thead><tbody>
       <tr><td>Owner</td><td>Tổ chức Workspace, tạo Project, mời thành viên, quản lý nhóm; chuyển quyền sở hữu khi bàn giao.</td><td>Chỉ Owner được xóa/chuyển sở hữu Workspace. Quyền Project phải được cấp riêng.</td></tr>

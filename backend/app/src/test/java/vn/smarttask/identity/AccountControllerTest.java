@@ -57,16 +57,10 @@ class AccountControllerTest {
     u.setActive(true);
     u.setStatus("ACTIVE");
     doNothing().when(grants).requireGrant(any(), any(), any(), any(), any());
-    doNothing().when(identity).revokeAllSessions(any());
-    when(users.findById(id)).thenReturn(Optional.of(u));
-    when(users.save(any())).thenAnswer(i -> i.getArgument(0));
-
+    u.setLocked(true);
+    when(identity.setAccountLocked(actorId(), id, true, null)).thenReturn(u);
     var res = controller.lock(id, null);
-
-    assertTrue(u.isLocked());
-    verify(identity).revokeAllSessions(id);
-    verify(audit).append(eq(actorId()), eq("account.lock"), eq("app_user"), eq(id),
-        eq("ALLOWED"), isNull(), any());
+    verify(identity).setAccountLocked(actorId(), id, true, null);
     assertEquals(200, res.getStatusCode().value());
   }
 
@@ -78,15 +72,10 @@ class AccountControllerTest {
     u.setActive(true);
     u.setStatus("ACTIVE");
     doNothing().when(grants).requireGrant(any(), any(), any(), any(), any());
-    when(users.findById(id)).thenReturn(Optional.of(u));
-    when(users.save(any())).thenAnswer(i -> i.getArgument(0));
-
+    u.setLocked(false);u.setLockedUntil(null);
+    when(identity.setAccountLocked(actorId(), id, false, null)).thenReturn(u);
     var res = controller.unlock(id);
-
-    assertFalse(u.isLocked());
-    assertNull(u.getLockedUntil());
-    verify(audit).append(eq(actorId()), eq("account.unlock"), eq("app_user"), eq(id),
-        eq("ALLOWED"), isNull(), any());
+    verify(identity).setAccountLocked(actorId(), id, false, null);
     assertEquals(200, res.getStatusCode().value());
   }
 
@@ -106,7 +95,7 @@ class AccountControllerTest {
 
   @Test
   void lockNotFound() {
-    when(users.findById(any())).thenReturn(Optional.empty());
+    when(identity.setAccountLocked(any(), any(), eq(true), isNull())).thenThrow(AppException.notFound("User not found"));
     AppException ex = assertThrows(AppException.class, () -> controller.lock(UUID.randomUUID(), null));
     assertEquals(404, ex.getHttpStatus().value());
   }

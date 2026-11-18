@@ -76,10 +76,10 @@ class TaskControllerRealReadTest {
   }
 
   @Test
-  void listReadsRepositoryWithStateFilter() {
+  void listReturnsBoundedDatabasePage() {
     Task a = task(UUID.randomUUID(), "TODO");
     Task b = task(UUID.randomUUID(), "COMPLETED");
-    when(tasks.findByProjectId(pid)).thenReturn(List.of(a, b));
+    when(service.search(any(), any())).thenReturn(new TaskService.TaskPage(List.of(a),null,1,20));
 
     var res = controller.list(pid, null, "TODO", null, null, null, null, null, "updated_at",
         "desc", null, 20);
@@ -90,12 +90,12 @@ class TaskControllerRealReadTest {
   }
 
   @Test
-  void listBlockedAndOverdueFilters() {
+  void listReturnsDatabaseResultsForBlockedAndOverdueRequests() {
     Task t = task(UUID.randomUUID(), "IN_PROGRESS");
     t.setBlockedFlag(true);
     t.setDueAt(OffsetDateTime.now(ZoneOffset.UTC).minusDays(1));
     Task other = task(UUID.randomUUID(), "IN_PROGRESS");
-    when(tasks.findByProjectId(pid)).thenReturn(List.of(t, other));
+    when(service.search(any(), any())).thenReturn(new TaskService.TaskPage(List.of(t),null,1,20));
 
     var blocked = controller.list(pid, null, null, null, null, true, null, null, "updated_at",
         "desc", null, 20);
@@ -111,7 +111,9 @@ class TaskControllerRealReadTest {
   void listCursorPagination() {
     Task a = task(UUID.randomUUID(), "TODO");
     Task b = task(UUID.randomUUID(), "TODO");
-    when(tasks.findByProjectId(pid)).thenReturn(List.of(a, b));
+    when(service.search(any(), any()))
+        .thenReturn(new TaskService.TaskPage(List.of(a),TaskCursor.nextCursor(a,"updated_at","desc"),2,1))
+        .thenReturn(new TaskService.TaskPage(List.of(b),null,2,1));
 
     var first = controller.list(pid, null, null, null, null, null, null, null, "updated_at",
         "desc", null, 1);
@@ -173,10 +175,7 @@ class TaskControllerRealReadTest {
   void tagFilter() {
     Task t = task(UUID.randomUUID(), "TODO");
     Task other = task(UUID.randomUUID(), "TODO");
-    when(tasks.findByProjectId(pid)).thenReturn(List.of(t, other));
-    // F2.5: tag filter is an EXISTS point query (no entity load per task).
-    when(tags.existsByTaskIdAndTag(t.getId(), "urgent")).thenReturn(true);
-    when(tags.existsByTaskIdAndTag(other.getId(), "urgent")).thenReturn(false);
+    when(service.search(any(), any())).thenReturn(new TaskService.TaskPage(List.of(t),null,1,20));
 
     var res = controller.list(pid, null, null, null, "urgent", null, null, null,
         "updated_at", "desc", null, 20);

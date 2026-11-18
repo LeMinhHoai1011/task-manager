@@ -1,5 +1,45 @@
 # Tài khoản và dữ liệu kiểm thử local
 
+## Bộ tài khoản theo giao diện — 14/11/2026
+
+Database dev hiện chạy loopback **15432** (Windows giữ cổng 55432); volume cũ được giữ.
+Web: [http://localhost:5173](http://localhost:5173), API local: cổng **8081**.
+
+| Username | Vai trò và trang mở |
+| --- | --- |
+| `admin` | SYSTEM_ADMIN + ACCOUNT_APPROVE_GLOBAL; `/admin`, không tham gia Project test |
+| `manager` | Owner Workspace TEAM, Manager Project test; `/dashboard` |
+| `employee` | Member, được giao một task test; `/tasks` |
+| `user` | Chỉ không gian cá nhân; `/my-tasks` |
+| `guest` | Guest, được giao task riêng để xem; `/projects` |
+| `workspace_admin` | Admin Workspace TEAM, không tham gia Project; `/dashboard` |
+
+Các tài khoản dùng cùng mật khẩu kiểm thử do người dùng cung cấp khi seed. Không ghi
+mật khẩu trong source hay fixture JSON. Mật khẩu được BCrypt trước khi lưu database.
+
+Chạy lại bằng password môi trường đã đặt, không thêm dependency:
+
+```powershell
+$env:JAVA_HOME='C:\Program Files\Java\jdk-21'
+# Đặt SMARTTASK_LOCAL_DEMO_PASSWORD trong môi trường trước khi chạy.
+.\scripts\seed-local-demo.ps1 -DatabasePort 15432 -RoleAccounts
+```
+
+Seeder chạy một transaction, khóa tránh hai lượt seed đồng thời, chỉ tái sử dụng tài
+khoản đúng marker/email/password. Trùng username với tài khoản khác sẽ dừng và rollback,
+không reset password hay ghi đè người dùng. Đã chạy lại để xác minh không tạo trùng.
+
+Fixture: `.run/local-demo/role-fixtures.json`; browser acceptance:
+
+```powershell
+node web/scripts/roles-browser.mjs
+```
+
+Script browser cần password qua cùng biến môi trường, kiểm tra trang mở, menu, scope
+API và URL trực tiếp với cả sáu tài khoản; kết quả/ảnh tại `.run/role-interfaces/`.
+Hướng dẫn bộ `demo_owner/demo_admin/demo_member/demo_guest` cũ bên dưới vẫn được giữ;
+hai bộ tài khoản khác nhau, không đổi mật khẩu tài khoản cũ.
+
 Tạo ngày 13/11/2026 trong PostgreSQL của **smarttask-dev**, cổng **55432**. Đăng nhập tại [http://localhost:5173/login](http://localhost:5173/login). Đây là dữ liệu demo local được tạo theo yêu cầu, không phải account production hay database audit 55439 trước đó.
 
 **Mật khẩu chung của 4 tài khoản: `DemoLocal@2026!`**

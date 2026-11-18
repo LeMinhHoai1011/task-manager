@@ -172,7 +172,7 @@ export default function Files({ taskId: taskIdProp }: { taskId?: string }) {
   return (
     <div className="mx-auto max-w-4xl">
       <h1 className="page-title">{t("nav.files")}</h1>
-      <div className="mt-3 flex flex-wrap gap-2 rounded-xl border border-slate-200 bg-white p-3">
+      <div className="mt-3 flex flex-wrap gap-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3">
         <Select
           aria-label="Công việc"
           value={taskInput}
@@ -228,7 +228,7 @@ export default function Files({ taskId: taskIdProp }: { taskId?: string }) {
         </div>
       )}
       <Card className="mt-4">
-        <h2 className="text-sm font-semibold text-slate-900">{t("files.attachments")}</h2>
+        <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">{t("files.attachments")}</h2>
         {listLoading ? (
           <div className="mt-2"><Spinner /></div>
         ) : !taskId ? (
@@ -275,7 +275,7 @@ export default function Files({ taskId: taskIdProp }: { taskId?: string }) {
         </div>
       </Card>
       <Card className="mt-4">
-        <h2 className="text-sm font-semibold text-slate-900">Phiên bản phát sinh trong phiên hiện tại</h2>
+        <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Phiên bản phát sinh trong phiên hiện tại</h2>
         <table className="table mt-2">
           <thead><tr><th>Version</th><th>Note</th></tr></thead>
           <tbody>

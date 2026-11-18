@@ -1,8 +1,9 @@
 [CmdletBinding()]
-param([ValidateRange(1024,65535)][int]$DatabasePort=55432)
+param([ValidateRange(1024,65535)][int]$DatabasePort=55432,[switch]$RoleAccounts)
 $ErrorActionPreference='Stop'
 $root=Split-Path -Parent $PSScriptRoot
 $output=Join-Path $root '.run\local-demo'
+if($RoleAccounts -and -not $env:SMARTTASK_LOCAL_DEMO_PASSWORD){throw 'Set SMARTTASK_LOCAL_DEMO_PASSWORD explicitly for role test accounts.'}
 New-Item -ItemType Directory -Force -Path $output|Out-Null
 $config=@{}
 foreach($line in Get-Content -LiteralPath (Join-Path $root 'infra\.env')) {
@@ -18,10 +19,8 @@ $java=Join-Path $env:JAVA_HOME 'bin\java.exe'
 $classpath=Join-Path $output 'runtime-classpath.txt'
 Push-Location (Join-Path $root 'backend')
 try {
-  if(-not (Test-Path 'app\target\classes\vn\smarttask\SmartTaskApplication.class')) {
-    & .\mvnw.cmd -B -pl app compile
-    if($LASTEXITCODE -ne 0){throw 'Backend compile failed'}
-  }
+  & .\mvnw.cmd -B -pl app compile
+  if($LASTEXITCODE -ne 0){throw 'Backend compile failed'}
   & .\mvnw.cmd -B -o -pl app dependency:build-classpath "-Dmdep.outputFile=$classpath" -DincludeScope=runtime *> (Join-Path $output 'classpath.log')
   if($LASTEXITCODE -ne 0){throw "Classpath preparation failed. See $output\classpath.log"}
 } finally {Pop-Location}
@@ -34,10 +33,11 @@ try {
   $env:SPRING_DATASOURCE_PASSWORD=$config.POSTGRES_PASSWORD
   $env:SMARTTASK_LOCAL_DEMO_CONFIRM='1'
   $env:SMARTTASK_LOCAL_DEMO_PORT="$DatabasePort"
-  $env:SMARTTASK_LOCAL_DEMO_OUTPUT=Join-Path $output 'fixtures.json'
+  $env:SMARTTASK_LOCAL_DEMO_OUTPUT=Join-Path $output $(if($RoleAccounts){'role-fixtures.json'}else{'fixtures.json'})
   $cp=(Join-Path $root 'backend\app\target\classes')+';'+(Get-Content -LiteralPath $classpath -Raw).Trim()
-  & $java --class-path $cp (Join-Path $root 'scripts\demo\SeedLocalDemo.java') *> (Join-Path $output 'seed.log')
+  $seedSource=if($RoleAccounts){'scripts\demo\SeedRoleAccounts.java'}else{'scripts\demo\SeedLocalDemo.java'}
+  & $java --class-path $cp (Join-Path $root $seedSource) *> (Join-Path $output 'seed.log')
   if($LASTEXITCODE -ne 0){throw "Demo seed failed; see $output\seed.log. No existing account/password is reset."}
 } finally {foreach($name in $seedVariables){[Environment]::SetEnvironmentVariable($name,$saved[$name],'Process')}}
-Write-Host 'Demo ready at http://localhost:5173 (4 accounts, 4 project tasks, 4 subtasks, 4 private tasks/account).'
-Write-Host "Fixtures: $output\fixtures.json"
+Write-Host $(if($RoleAccounts){'Role accounts ready: admin, manager, employee, user, guest, workspace_admin.'}else{'Demo ready: 4 accounts, 4 project tasks, 4 subtasks, 4 private tasks/account.'})
+Write-Host "Fixtures: $output"

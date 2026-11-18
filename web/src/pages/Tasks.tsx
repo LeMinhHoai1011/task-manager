@@ -7,6 +7,7 @@ import {useAccess} from "../auth/AccessContext";
 import CreateProjectTask from "../components/CreateProjectTask";
 import { Badge, Button, Card, EmptyState, ErrorAlert, Select, Spinner, TextInput, stateLabel } from "../components/ui";
 import AppIcon from "../components/AppIcon";
+import TaskBatchToolbar, {type BatchSelection,type BatchAction} from "../components/TaskBatchToolbar";
 
 // Filter: state/project/assignee/tag/blocked/depth/overdue + sort allowlist + cursor.
 const SORT_ALLOW = ["created_at", "updated_at", "due_at", "priority"] as const;
@@ -74,6 +75,26 @@ export default function Tasks() {
   const [loading, setLoading] = useState(false);
   const [view, setView] = useState<"list" | "kanban" | "calendar">("list");
   const [moving, setMoving] = useState(false);
+  const [selected, setSelected] = useState<Record<string, BatchSelection>>({});
+  const [batchBusy, setBatchBusy] = useState(false);
+  const canSelect=(task:TaskRow)=>{
+    const project=access.projects.find(p=>p.id===task.project_id);
+    return !!project&&(project.canLogProgress||project.metadata||project.assignment);
+  };
+  const batchProjects=Object.keys(selected).map(id=>access.projects.find(p=>p.id===items.find(task=>task.id===id)?.project_id));
+  const batchActions:BatchAction[]=[
+    ...(batchProjects.every(p=>p?.canLogProgress)?["START","SUBMIT"] as BatchAction[]:[]),
+    ...(batchProjects.every(p=>p?.assignment)?["ASSIGN"] as BatchAction[]:[]),
+    ...(batchProjects.every(p=>p?.metadata)?["PRIORITY","ADD_TAG","REMOVE_TAG","DELETE"] as BatchAction[]:[]),
+  ];
+  function selectTask(task:TaskRow, checked:boolean) {
+    setSelected(previous=>{
+      const next={...previous};
+      if (!checked) delete next[task.id];
+      else if (task.version!=null && Object.keys(next).length<100) next[task.id]={id:task.id,title:task.title,version:task.version};
+      return next;
+    });
+  }
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
 
   // Quick detail drawer
@@ -81,7 +102,7 @@ export default function Tasks() {
 
   async function moveTask(id: string, target: string) {
     const task = items.find((row) => row.id === id);
-    if (!task || moving || task.state === target) return;
+    if (!task || moving || batchBusy || task.state === target) return;
     const action =
       task.state === "TODO" && target === "IN_PROGRESS"
         ? "start"
@@ -164,6 +185,7 @@ export default function Tasks() {
 
   useEffect(() => {
     setCursor(null);
+    setSelected({});
     void load(null);
   }, [load]);
 
@@ -177,9 +199,9 @@ export default function Tasks() {
       {/* Top Header & View Modes */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="page-title">{t("nav.tasks")}</h1>
+          <p className="eyebrow">CÔNG VIỆC DỰ ÁN</p><h1 className="page-title">{t("nav.tasks")}</h1>
           <p className="page-subtitle">
-            Theo dõi, lọc và kéo thả công việc trên bảng Kanban 5 trạng thái nghiệp vụ.
+            Tập trung vào công việc được giao, thời hạn và các bước cần hoàn thành.
           </p>
         </div>
         <div className="segmented" role="group" aria-label="Chế độ hiển thị">
@@ -358,6 +380,12 @@ export default function Tasks() {
 
       {err && items.length > 0 && <ErrorAlert message={err} />}
 
+      <TaskBatchToolbar selected={Object.values(selected)} onBusyChange={setBatchBusy} allowedActions={batchActions}
+        onClear={()=>setSelected({})} onComplete={ids=>{
+          setSelected(previous=>Object.fromEntries(Object.entries(previous).filter(([id])=>!ids.includes(id))));
+          void load(null);
+        }}/>
+
       {loading && items.length === 0 ? (
         <Spinner />
       ) : err && items.length === 0 ? (
@@ -376,6 +404,13 @@ export default function Tasks() {
           <table className="table min-w-[700px] w-full text-left">
             <thead>
               <tr className="border-b border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-500">
+                <th className="p-3.5"><input type="checkbox" aria-label="Chọn tối đa 100 công việc đã tải"
+                  disabled={batchBusy||moving||!items.some(row=>row.version!=null&&canSelect(row))}
+                  checked={items.some(row=>row.version!=null&&canSelect(row))&&items.filter(row=>row.version!=null&&canSelect(row)).slice(0,100).every(row=>!!selected[row.id])}
+                  onChange={e=>{
+                    const checked=e.target.checked;
+                    setSelected(checked?Object.fromEntries(items.filter(row=>row.version!=null&&canSelect(row)).slice(0,100).map(row=>[row.id,{id:row.id,title:row.title,version:row.version!}])):{});
+                  }}/></th>
                 <th className="p-3.5">Công việc</th>
                 <th className="p-3.5">Trạng thái</th>
                 <th className="p-3.5">Hạn hoàn thành</th>
@@ -389,6 +424,9 @@ export default function Tasks() {
                 const blockedTask = it.blocked ?? it.blocked_flag ?? false;
                 return (
                   <tr key={it.id} className="hover:bg-slate-50 dark:hover:bg-slate-850">
+                    <td className="p-3.5"><input type="checkbox" aria-label={`Chọn ${it.title}`} checked={!!selected[it.id]}
+                      disabled={batchBusy||moving||!canSelect(it)||it.version==null||(!selected[it.id]&&Object.keys(selected).length>=100)}
+                      onChange={e=>selectTask(it,e.target.checked)}/></td>
                     <td className="p-3.5">
                       <Link
                         to={`/tasks/${it.id}`}

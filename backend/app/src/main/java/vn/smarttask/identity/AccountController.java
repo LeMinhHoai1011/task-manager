@@ -58,6 +58,51 @@ public class AccountController {
     return ResponseEntity.ok(ApiResult.ok(items, "account.list.success"));
   }
 
+  public record AccountDto(UUID user_id, String username, String email, String display_name,
+      String status, boolean locked, java.time.OffsetDateTime locked_until, boolean protected_account,
+      boolean must_change_password, java.time.OffsetDateTime created_at) {
+    static AccountDto of(AppUser u) {
+      return new AccountDto(u.getId(), u.getUsername(), u.getEmail(), u.getDisplayName(),
+          u.getStatus(), u.isLocked(), u.getLockedUntil(), u.isProtectedFlag(),
+          u.isMustChangePassword(), u.getCreatedAt());
+    }
+  }
+
+  @GetMapping("/directory")
+  @RequiresPermission("account:read")
+  public ResponseEntity<ApiResult<Object>> directory(@RequestParam(defaultValue="") String q,
+      @RequestParam(defaultValue="") String status, @RequestParam(defaultValue="0") int page,
+      @RequestParam(defaultValue="25") int size) {
+    requireApproveGrant(CurrentActor.userId(), "account.directory", null);
+    var result = identity.directory(q, status, page, size).map(AccountDto::of);
+    return ResponseEntity.ok(ApiResult.ok(result, "account.directory.success"));
+  }
+
+  public record PasswordRequest(@JsonProperty("temporary_password") String temporaryPassword) {}
+  public record CreateRequest(
+      @jakarta.validation.constraints.NotBlank @jakarta.validation.constraints.Pattern(regexp="[A-Za-z0-9_.-]{3,50}") String username,
+      @jakarta.validation.constraints.NotBlank @jakarta.validation.constraints.Email @jakarta.validation.constraints.Size(max=254) String email,
+      @JsonProperty("display_name") @jakarta.validation.constraints.NotBlank @jakarta.validation.constraints.Size(max=100) String displayName,
+      @JsonProperty("temporary_password") String temporaryPassword) {}
+
+  @PostMapping
+  @RequiresPermission("account:write")
+  public ResponseEntity<ApiResult<Object>> create(@jakarta.validation.Valid @RequestBody CreateRequest request) {
+    UUID actor = CurrentActor.userId();
+    requireApproveGrant(actor, "account.create", null);
+    var user = identity.createManagedAccount(actor, request.username(), request.email(), request.temporaryPassword(), request.displayName());
+    return ResponseEntity.ok(ApiResult.ok(AccountDto.of(user), "account.create.success"));
+  }
+
+  @PutMapping("/{id}/password")
+  @RequiresPermission("account:write")
+  public ResponseEntity<ApiResult<Object>> password(@PathVariable UUID id, @RequestBody PasswordRequest request) {
+    UUID actor = CurrentActor.userId();
+    requireApproveGrant(actor, "account.password.set", id);
+    identity.setAccountPassword(actor, id, request.temporaryPassword());
+    return ResponseEntity.ok(ApiResult.ok(Map.of("user_id", id, "must_change_password", true), "account.password.success"));
+  }
+
   /** EP-022: approve a pending account. */
   @PostMapping("/{id}/approve")
   @RequiresPermission("account:write")
@@ -89,20 +134,7 @@ public class AccountController {
       @RequestBody(required = false) LockRequest req) {
     UUID actor = CurrentActor.userId();
     requireApproveGrant(actor, "account.lock", id);
-    AppUser u = users.findById(id)
-        .orElseThrow(() -> AppException.notFound("User not found"));
-    u.setLocked(true);
-    if (req != null && req.lockedUntilMinutes != null && req.lockedUntilMinutes > 0) {
-      u.setLockedUntil(java.time.OffsetDateTime.now(java.time.ZoneOffset.UTC)
-          .plusMinutes(req.lockedUntilMinutes));
-    } else {
-      u.setLockedUntil(null);
-    }
-    users.save(u);
-    // Thu hồi mọi session của user bị khóa: session authentication filter sẽ từ chối
-    // vì user không còn active hoặc locked. Revoke session active duy nhất nếu có.
-    identity.revokeAllSessions(id);
-    auditAppend(actor, "account.lock", id, "ALLOWED");
+    AppUser u = identity.setAccountLocked(actor, id, true, req == null ? null : req.lockedUntilMinutes());
     Map<String, Object> result = new java.util.LinkedHashMap<>();
     result.put("user_id", u.getId().toString());
     result.put("locked", u.isLocked());
@@ -117,12 +149,7 @@ public class AccountController {
   public ResponseEntity<ApiResult<Object>> unlock(@PathVariable UUID id) {
     UUID actor = CurrentActor.userId();
     requireApproveGrant(actor, "account.unlock", id);
-    AppUser u = users.findById(id)
-        .orElseThrow(() -> AppException.notFound("User not found"));
-    u.setLocked(false);
-    u.setLockedUntil(null);
-    users.save(u);
-    auditAppend(actor, "account.unlock", id, "ALLOWED");
+    AppUser u = identity.setAccountLocked(actor, id, false, null);
     return ResponseEntity.ok(ApiResult.ok(Map.of("user_id", u.getId().toString(),
         "locked", u.isLocked()), "account.unlock.success"));
   }

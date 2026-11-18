@@ -147,7 +147,13 @@ public class IdentityService {
       audit.appendDenied(approverId, "auth.approve", "app_user", targetId, "MISSING_GRANT");
       throw AppException.forbidden("Missing ACCOUNT_APPROVE_GLOBAL");
     }
-    AppUser u = users.findById(targetId).orElseThrow(() -> AppException.notFound("User not found"));
+    AppUser u = users.findByIdForUpdate(targetId).filter(x -> x.getDeletedAt() == null)
+        .orElseThrow(() -> AppException.notFound("User not found"));
+    if (approve && "ACTIVE".equals(u.getStatus()) && u.isActive()) return u;
+    if (!"PENDING".equals(u.getStatus()))
+      throw AppException.stateConflict("ACCOUNT_NOT_PENDING", "Only pending accounts can be approved or rejected");
+    if (u.isProtectedFlag() || targetId.equals(approverId))
+      throw AppException.forbidden("Cannot change your own access or a protected account");
     if (approve) {
       u.setStatus("ACTIVE");
       u.setActive(true);
@@ -168,11 +174,78 @@ public class IdentityService {
     AppUser u = new AppUser(UuidV7.generate(), username, email, encoder.encode(password), displayName);
     u.setStatus("ACTIVE");
     u.setActive(true);
-    users.save(u);
+    u = users.save(u);
     ensurePersonalWorkspace(u);
     audit.append(adminId, "auth.createByAdmin", "app_user", u.getId(), "ALLOWED", null, "{}");
     outbox.emit("app_user", u.getId(), "user.created", "{}");
     return u;
+  }
+
+  @Transactional(readOnly = true)
+  public org.springframework.data.domain.Page<AppUser> directory(String query, String status, int page, int size) {
+    if (!java.util.Set.of("", "ACTIVE", "PENDING", "REJECTED", "LOCKED").contains(status))
+      throw AppException.badRequest("STATUS_INVALID", "Unknown account status");
+    return users.findAll((root, criteria, cb) -> {
+      var conditions = new java.util.ArrayList<jakarta.persistence.criteria.Predicate>();
+      conditions.add(cb.isNull(root.get("deletedAt")));
+      if ("LOCKED".equals(status)) conditions.add(cb.isTrue(root.get("locked")));
+      else if (!status.isEmpty()) conditions.add(cb.equal(root.get("status"), status));
+      if (query != null && !query.isBlank()) {
+        String term = "%" + query.trim().toLowerCase(java.util.Locale.ROOT)
+            .replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
+        conditions.add(cb.or(cb.like(cb.lower(root.get("username")), term, '\\'),
+            cb.like(cb.lower(root.get("email")), term, '\\'),
+            cb.like(cb.lower(root.get("displayName")), term, '\\')));
+      }
+      return cb.and(conditions.toArray(jakarta.persistence.criteria.Predicate[]::new));
+    }, org.springframework.data.domain.PageRequest.of(Math.max(0, page), Math.max(1, Math.min(size, 100)),
+        org.springframework.data.domain.Sort.by("createdAt").descending().and(org.springframework.data.domain.Sort.by("id"))));
+  }
+
+  @Transactional
+  public AppUser createManagedAccount(UUID actor, String username, String email, String password, String displayName) {
+    validateTemporaryPassword(password);
+    if (users.findByUsernameIgnoreCase(username).isPresent() || users.findByEmailIgnoreCase(email).isPresent())
+      throw AppException.stateConflict("ACCOUNT_EXISTS", "Username or email already exists");
+    AppUser user = createByAdmin(actor, username, email, password, displayName);
+    user.setMustChangePassword(true);
+    return users.save(user);
+  }
+
+  @Transactional
+  public AppUser setAccountPassword(UUID actor, UUID target, String password) {
+    validateTemporaryPassword(password);
+    AppUser u = manageableAccount(actor, target);
+    u.setPasswordHash(encoder.encode(password));
+    u.setMustChangePassword(true);
+    revokeAllSessions(target);
+    audit.append(actor, "account.password.set", "app_user", target, "ALLOWED", null, "{}");
+    return users.save(u);
+  }
+
+  public static void validateTemporaryPassword(String password) {
+    if (password == null || password.length() < 8 || password.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 72)
+      throw AppException.badRequest("PASSWORD_INVALID", "Password must contain at least 8 characters and at most 72 UTF-8 bytes");
+  }
+
+  private AppUser manageableAccount(UUID actor, UUID target) {
+    AppUser u = users.findByIdForUpdate(target).filter(x -> x.getDeletedAt() == null)
+        .orElseThrow(() -> AppException.notFound("User not found"));
+    if (actor.equals(target) || u.isProtectedFlag())
+      throw AppException.forbidden("Cannot change your own access or a protected account");
+    return u;
+  }
+
+  @Transactional
+  public AppUser setAccountLocked(UUID actor, UUID target, boolean locked, Long minutes) {
+    if (minutes != null && (minutes < 1 || minutes > 525600))
+      throw AppException.badRequest("LOCK_DURATION_INVALID", "Lock duration must be 1–525600 minutes");
+    AppUser u = manageableAccount(actor, target);
+    u.setLocked(locked);
+    u.setLockedUntil(locked && minutes != null ? OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(minutes) : null);
+    if (locked) revokeAllSessions(target);
+    audit.append(actor, locked ? "account.lock" : "account.unlock", "app_user", target, "ALLOWED", null, "{}");
+    return users.save(u);
   }
 
   @Transactional
@@ -318,7 +391,8 @@ public class IdentityService {
 
   @Transactional
   public LoginResult refresh(String refreshToken) {
-    UserRefreshToken rt = refreshTokens.findByTokenHash(TokenHash.sha256(refreshToken))
+    if(refreshToken==null||refreshToken.isBlank())throw AppException.invalidSession("Missing refresh");
+    UserRefreshToken rt = refreshTokens.findByTokenHashForUpdate(TokenHash.sha256(refreshToken))
         .orElseThrow(() -> AppException.invalidSession("Invalid refresh"));
     if (rt.isRevoked() || rt.getExpiresAt().isBefore(OffsetDateTime.now(ZoneOffset.UTC))) {
       audit.appendDenied(rt.getUserId(), "auth.refresh", "user_refresh_token", rt.getId(), "REVOKED");
@@ -329,6 +403,8 @@ public class IdentityService {
       audit.appendDenied(u.getId(), "auth.refresh", "user_refresh_token", rt.getId(), "USER_INACTIVE");
       throw AppException.invalidSession("User not active");
     }
+    if(u.isLocked()||(u.getLockedUntil()!=null&&u.getLockedUntil().isAfter(OffsetDateTime.now(ZoneOffset.UTC))))
+      throw AppException.accountLocked("Account locked");
     // Refresh is bound to the session that issued it. Logout, admin revoke or
     // a login elsewhere deactivates that session; the refresh token must die
     // with it instead of silently minting a new session.
@@ -369,6 +445,38 @@ public class IdentityService {
     audit.append(u.getId(), "auth.refresh", "user_session", s.getId(), "ALLOWED", null, "{}");
     boolean isSystemAdmin = grants != null && grants.isSystemAdmin(u.getId());
     return new LoginResult(access, refresh2, exp, u.getId(), isSystemAdmin, u.isMustChangePassword());
+  }
+
+  @Transactional
+  public LoginResult loginBrowser(String username,String password,String device) {
+    return browserExpiry(login(username,password,device,"WEB"));
+  }
+
+  @Transactional
+  public LoginResult refreshBrowser(String refresh) { return browserExpiry(refresh(refresh)); }
+
+  private LoginResult browserExpiry(LoginResult result) {
+    var session=sessions.findBySessionTokenHash(TokenHash.sha256(result.accessToken())).orElseThrow();
+    var expiry=OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(15);
+    session.setExpiresAt(expiry);sessions.save(session);
+    return new LoginResult(result.accessToken(),result.refreshToken(),expiry,result.userId(),result.isSystemAdmin(),result.mustChangePassword());
+  }
+
+  @Transactional
+  public void logoutBrowser(String refresh) {
+    if(refresh==null||refresh.isBlank())return;
+    refreshTokens.findByTokenHashForUpdate(TokenHash.sha256(refresh)).ifPresent(rt->{
+      // A refresh response can race logout. Burn its descendants too, without
+      // revoking an unrelated later login (a separate refresh family).
+      var current=rt;var visited=new java.util.HashSet<UUID>();
+      while(visited.add(current.getId())) {
+        final var token=current;
+        if(token.getSessionId()!=null)sessions.findById(token.getSessionId()).filter(s->s.isActive()&&"ACTIVE".equals(s.getStatus()))
+            .ifPresent(s->revokeSession(token.getUserId(),s.getId(),false,"REVOKED_LOGOUT"));
+        token.setRevoked(true);refreshTokens.save(token);
+        var next=refreshTokens.findByRotatedFromId(token.getId());if(next.isEmpty())break;current=next.get();
+      }
+    });
   }
 
   @Transactional

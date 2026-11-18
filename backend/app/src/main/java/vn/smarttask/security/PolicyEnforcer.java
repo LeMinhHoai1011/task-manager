@@ -31,6 +31,31 @@ public class PolicyEnforcer {
     return grants!=null&&projectMembers.findMembership(project,actor).filter(m->"MEMBER".equals(m.getRole())).isPresent()&&grants.hasProjectPermission(actor,project,permission);
   }
 
+  /** SQL equivalent of taskScope's read policy; pagination must not widen visibility. */
+  public org.springframework.data.jpa.domain.Specification<vn.smarttask.task.entity.Task> readableTasks(UUID actor) {
+    return (task, query, cb) -> {
+      var membership = query.subquery(UUID.class);
+      var member = membership.from(vn.smarttask.project.entity.ProjectMembership.class);
+      var project = membership.from(vn.smarttask.project.entity.Project.class);
+      var assigned = query.subquery(UUID.class);
+      var assignment = assigned.from(vn.smarttask.task.entity.TaskAssignment.class);
+      assigned.select(assignment.get("id")).where(cb.equal(assignment.get("taskId"), task.get("id")),
+          cb.equal(assignment.get("userId"), actor), cb.equal(assignment.get("status"), "ACTIVE"));
+      var delegated = query.subquery(UUID.class);
+      var grant = delegated.from(vn.smarttask.security.entity.GlobalPermissionGrant.class);
+      delegated.select(grant.get("id")).where(cb.equal(grant.get("userId"), actor),
+          cb.equal(grant.get("scopeType"), "PROJECT"), cb.equal(grant.get("scopeId"), task.get("projectId")),
+          grant.get("code").in("TASK_METADATA_WRITE", "TASK_ASSIGNMENT_WRITE"), cb.isNull(grant.get("revokedAt")),
+          cb.or(cb.isNull(grant.get("expiresAt")), cb.greaterThan(grant.get("expiresAt"), java.time.OffsetDateTime.now(java.time.ZoneOffset.UTC))));
+      membership.select(member.get("id")).where(cb.equal(member.get("projectId"), task.get("projectId")),
+          cb.equal(member.get("userId"), actor), cb.equal(member.get("status"), "ACTIVE"),
+          cb.equal(project.get("id"), task.get("projectId")), cb.notEqual(project.get("status"), "DELETED"),
+          cb.or(member.get("role").in("OWNER", "ADMIN", "MANAGER"), cb.exists(assigned),
+              cb.and(cb.equal(member.get("role"), "MEMBER"), cb.exists(delegated))));
+      return cb.and(cb.equal(task.get("scope"), "PROJECT"), cb.isNull(task.get("deletedAt")), cb.exists(membership));
+    };
+  }
+
   private final AuthorizationPolicy policy;
   private final WorkspaceRepository workspaces;
   private final WorkspaceMembershipRepository wsMembers;

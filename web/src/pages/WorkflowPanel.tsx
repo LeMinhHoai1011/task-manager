@@ -42,7 +42,8 @@ export default function WorkflowPanel({ taskId, version, state, onDone,disabled=
     }
     const op = async () =>
       apiFetch(`/tasks/${taskId}/workflow/${action}`, {
-        ...mutationOpts({ ifMatch: version, idempotencyKey: idem, body: reason ? { reason } : {} }),
+        ...mutationOpts({ ifMatch: version, idempotencyKey: idem,
+          body: { ...(reason ? { reason } : {}), ...(action === "reopen" ? {kind:state === "CANCELLED" ? "cancelled" : "completed"} : {}) } }),
         method: "POST",
       });
     try {

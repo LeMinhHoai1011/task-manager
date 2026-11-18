@@ -13,6 +13,9 @@ vi.mock("../api/client", async (importOriginal) => {
   };
 });
 
+vi.mock("../auth/AccessContext",async original=>({...await original<typeof import("../auth/AccessContext")>(),
+  useAccess:()=>({projects:[{id:"project",canLogProgress:true,metadata:false,assignment:false}]})}));
+
 function renderTasks() {
   return render(
     <MemoryRouter initialEntries={["/tasks"]}>
@@ -69,5 +72,19 @@ describe("Tasks", () => {
       expect(last.query.sort).toBe("created_at");
       expect(last.query.order).toBe("desc");
     });
+  });
+
+  it("chỉ chọn task có phiên bản và bỏ lựa chọn khi đổi bộ lọc", async () => {
+    mockApiFetch.mockImplementation((path:string)=>Promise.resolve(path==="/tasks"?{
+      data:{items:[{id:"one",project_id:"project",title:"Có phiên bản",state:"TODO",version:4},
+        {id:"legacy",project_id:"project",title:"Thiếu phiên bản",state:"TODO"}],next_cursor:null},
+    }:emptyPage));
+    renderTasks();
+    const checkbox=await screen.findByLabelText("Chọn Có phiên bản");
+    expect(screen.getByLabelText("Chọn Thiếu phiên bản")).toBeDisabled();
+    fireEvent.click(checkbox);
+    expect(screen.getByText("Đã chọn 1/100 công việc")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Trạng thái"),{target:{value:"IN_PROGRESS"}});
+    await waitFor(()=>expect(screen.queryByText("Đã chọn 1/100 công việc")).not.toBeInTheDocument());
   });
 });

@@ -8,6 +8,7 @@ import {
   refreshAccessToken,
   setTokens,
 } from "../api/client";
+import {SECURE_BROWSER_SESSION,BROWSER_SESSION_MARKER} from "../api/browserSession";
 import type { ApiError } from "../api/types";
 
 export interface SessionUser {
@@ -41,6 +42,7 @@ interface PendingReauth {
 }
 
 interface AuthState {
+  ready:boolean;
   user: SessionUser | null;
   token: string | null;
   sessionNotice: string | null;
@@ -61,6 +63,7 @@ interface AuthState {
 const AuthContext = createContext<AuthState | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [ready,setReady]=useState(!SECURE_BROWSER_SESSION);
   const [user, setUser] = useState<SessionUser | null>(cachedUser);
   const [token, setTok] = useState<string | null>(() => getToken());
   const [sessionNotice, setSessionNotice] = useState<string | null>(null);
@@ -73,6 +76,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const onTokens = (e: Event) => {
       const detail = (e as CustomEvent<{ accessToken?: string | null }>).detail;
       setTok(detail?.accessToken ?? null);
+      if(SECURE_BROWSER_SESSION&&detail?.accessToken)setUser(cachedUser());
       if (!detail?.accessToken) { cacheUser(null); setUser(null); }
     };
     const onExpired = () => {
@@ -89,6 +93,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  useEffect(()=>{
+    if(!SECURE_BROWSER_SESSION)return;
+    let current=true;
+    if(!localStorage.getItem(BROWSER_SESSION_MARKER)){setReady(true);return;}
+    void refreshAccessToken().then(token=>{if(!token)clearTokens();}).finally(()=>{if(current)setReady(true);});
+    return()=>{current=false;};
+  },[]);
+
   const login = useCallback(async (email: string, password: string) => {
     // Backend LoginRequest dùng key `username` (tự resolve username-hoặc-email
     // phía server) + client_type. Giữ tương thích: gửi username, không gửi key lạ.
@@ -99,7 +111,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       role?: string;
       must_change_password?: boolean;
       session_replaced?: boolean;
-    }>("/auth/login", {
+    }>(SECURE_BROWSER_SESSION?"/auth/web/login":"/auth/login", {
       method: "POST",
       body: { username: email, password, client_type: "WEB" },
       skipRefresh: true,
@@ -122,8 +134,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
+    const logoutToken=getToken();clearTokens();
     try {
-      await apiFetch("/auth/logout", { method: "POST" });
+      await apiFetch(SECURE_BROWSER_SESSION?"/auth/web/logout":"/auth/logout", { method: "POST",skipRefresh:true,token:logoutToken });
     } catch {
       /* logout best-effort */
     }
@@ -139,8 +152,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const revoke = useCallback(async () => {
+    const logoutToken=getToken();clearTokens();
     try {
-      await apiFetch("/auth/logout", { method: "POST" });
+      await apiFetch(SECURE_BROWSER_SESSION?"/auth/web/logout":"/auth/logout", { method: "POST",skipRefresh:true,token:logoutToken });
     } catch {
       /* revoke best-effort via logout */
     }
@@ -179,6 +193,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo<AuthState>(
     () => ({
+      ready,
       user,
       token,
       sessionNotice,
@@ -193,7 +208,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       dismissNotice,
       notifySessionReplaced,
     }),
-    [user, token, sessionNotice, reauth, login, logout, refresh, revoke, requireReauth, confirmReauth, dismissReauth, dismissNotice, notifySessionReplaced]
+    [ready,user, token, sessionNotice, reauth, login, logout, refresh, revoke, requireReauth, confirmReauth, dismissReauth, dismissNotice, notifySessionReplaced]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

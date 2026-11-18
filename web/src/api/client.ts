@@ -4,6 +4,7 @@
 // - Mutation workflow/upload/export: gửi If-Match + Idempotency-Key
 // - Parse ErrorEnvelope, KHÔNG render text server; map status -> UI trung tính.
 
+import {SECURE_BROWSER_SESSION,BROWSER_SESSION_MARKER,browserCsrf} from "./browserSession";
 import type { ApiError, ErrorEnvelope, SuccessEnvelope, UnwrappedPage } from "./types";
 
 const BASE = (import.meta.env.VITE_API_BASE ?? "/api/v1").replace(/\/$/, "");
@@ -11,6 +12,10 @@ const BASE = (import.meta.env.VITE_API_BASE ?? "/api/v1").replace(/\/$/, "");
 export const API_BASE = BASE;
 const TOKEN_KEY = "tm.access_token";
 const REFRESH_KEY = "tm.refresh_token";
+const BROWSER_REFRESH_GENERATION="tm.browser_refresh_generation";
+let memoryAccess:string|null=null;
+let sessionEpoch=0;
+if(SECURE_BROWSER_SESSION){try{localStorage.removeItem(TOKEN_KEY);localStorage.removeItem(REFRESH_KEY);}catch{/* restricted storage */}}
 
 /** Phát khi access token đổi (login/refresh/logout) để AuthContext/Realtime cập nhật. */
 export const TOKENS_EVENT = "tm:tokens";
@@ -18,6 +23,7 @@ export const TOKENS_EVENT = "tm:tokens";
 export const SESSION_EXPIRED_EVENT = "tm:session-expired";
 
 export function getToken(): string | null {
+  if(SECURE_BROWSER_SESSION)return memoryAccess;
   try {
     return localStorage.getItem(TOKEN_KEY);
   } catch {
@@ -26,6 +32,7 @@ export function getToken(): string | null {
 }
 
 export function getRefreshToken(): string | null {
+  if(SECURE_BROWSER_SESSION)return null;
   try {
     return localStorage.getItem(REFRESH_KEY);
   } catch {
@@ -44,6 +51,11 @@ function notifyTokens(accessToken: string | null) {
  */
 export function setTokens(accessToken: string | null, refreshToken?: string | null) {
   try {
+    if(SECURE_BROWSER_SESSION){
+      memoryAccess=accessToken;localStorage.removeItem(TOKEN_KEY);localStorage.removeItem(REFRESH_KEY);
+      if(accessToken)localStorage.setItem(BROWSER_SESSION_MARKER,"1");else localStorage.removeItem(BROWSER_SESSION_MARKER);
+      notifyTokens(accessToken);return;
+    }
     if (accessToken) localStorage.setItem(TOKEN_KEY, accessToken);
     else localStorage.removeItem(TOKEN_KEY);
     if (refreshToken !== undefined) {
@@ -63,9 +75,14 @@ export function setToken(t: string | null) {
 
 /** Xoá cả access + refresh. `notifyExpired` bật khi refresh thất bại (không phải logout). */
 export function clearTokens(notifyExpired = false) {
+  sessionEpoch++;
+  memoryAccess=null;
+  lastBrowserRefresh=null;
   try {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(REFRESH_KEY);
+    localStorage.removeItem(BROWSER_SESSION_MARKER);
+    localStorage.removeItem(BROWSER_REFRESH_GENERATION);
   } catch {
     /* ignore */
   }
@@ -73,6 +90,42 @@ export function clearTokens(notifyExpired = false) {
   if (notifyExpired && typeof window !== "undefined") {
     window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
   }
+}
+
+if(SECURE_BROWSER_SESSION&&typeof window!=="undefined")window.addEventListener("storage",event=>{
+  if(event.key===BROWSER_SESSION_MARKER&&event.newValue===null)clearTokens();
+});
+
+type BrowserRefresh = {generation:string;access_token:string;expires_at:string;user_id?:string;email?:string;role?:string;must_change_password?:boolean};
+let lastBrowserRefresh:BrowserRefresh|null=null;
+let channel:BroadcastChannel|null=null;
+function applyBrowserRefresh(data:BrowserRefresh){
+  lastBrowserRefresh=data;
+  if(data.user_id)localStorage.setItem("tm.session_user",JSON.stringify({id:data.user_id,email:data.email??"",role:data.role??"USER",mustChangePassword:data.must_change_password??false}));
+  setTokens(data.access_token);
+}
+function refreshChannel(){
+  if(channel)return channel;
+  channel=new window.BroadcastChannel("smarttask:browser-session");
+  channel.addEventListener("message",event=>{
+    if(!localStorage.getItem(BROWSER_SESSION_MARKER))return;
+    const message=event.data;
+    if(message?.type==="rotated"&&message.data?.access_token&&message.data.generation===localStorage.getItem(BROWSER_REFRESH_GENERATION)){applyBrowserRefresh(message.data);}
+    if(message?.type==="request"&&lastBrowserRefresh&&lastBrowserRefresh.generation===localStorage.getItem(BROWSER_REFRESH_GENERATION)&&lastBrowserRefresh.access_token!==message.previous
+        &&Date.parse(lastBrowserRefresh.expires_at)>Date.now()+30000){
+      channel?.postMessage({type:"reply",id:message.id,data:lastBrowserRefresh});
+    }
+  });
+  return channel;
+}
+async function peerRefresh(previous:string|null):Promise<BrowserRefresh|null>{
+  const shared=refreshChannel(),id=crypto.randomUUID();
+  return new Promise(resolve=>{
+    const finish=(data:BrowserRefresh|null)=>{clearTimeout(timeout);shared.removeEventListener("message",receive);resolve(data);};
+    const receive=(event:MessageEvent)=>{const m=event.data;if(m?.type==="reply"&&m.id===id&&m.data?.generation===localStorage.getItem(BROWSER_REFRESH_GENERATION)&&m.data?.access_token!==previous&&Date.parse(m.data?.expires_at)>Date.now()+30000)finish(m.data);};
+    const timeout=setTimeout(()=>finish(null),100);
+    shared.addEventListener("message",receive);shared.postMessage({type:"request",id,previous});
+  });
 }
 
 let refreshInFlight: Promise<string | null> | null = null;
@@ -84,33 +137,55 @@ let refreshInFlight: Promise<string | null> | null = null;
  */
 export async function refreshAccessToken(): Promise<string | null> {
   if (refreshInFlight) return refreshInFlight;
-  const refresh = getRefreshToken();
-  if (!refresh) return null;
+  const refreshToken = getRefreshToken();
+  const epoch=sessionEpoch,previousAccess=getToken();
+  if (!SECURE_BROWSER_SESSION&&!refreshToken) return null;
+  if(SECURE_BROWSER_SESSION&&!localStorage.getItem(BROWSER_SESSION_MARKER))return null;
 
   refreshInFlight = (async () => {
-    try {
-      const res = await fetch(`${BASE}/auth/refresh`, {
+    const refresh=async()=>{
+      if(epoch!==sessionEpoch)return null;
+      if(SECURE_BROWSER_SESSION){
+        if(!localStorage.getItem(BROWSER_SESSION_MARKER))return null;
+        const peer=await peerRefresh(previousAccess);
+        if(epoch!==sessionEpoch)return null;
+        if(peer){applyBrowserRefresh(peer);return peer.access_token;}
+      }
+      const csrf=SECURE_BROWSER_SESSION?await browserCsrf(BASE):null;
+      const res = await fetch(`${BASE}/auth/${SECURE_BROWSER_SESSION?"web/":""}refresh`, {
+        credentials:"same-origin",
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Accept: "application/json",
           "X-Client-Type": "WEB",
+          ...(csrf?{"X-CSRF-Token":csrf}:{}),
         },
-        body: JSON.stringify({ refresh_token: refresh }),
+        body: JSON.stringify(SECURE_BROWSER_SESSION?{}:{ refresh_token: refreshToken }),
       });
       if (!res.ok) return null;
       const json = (await res.json()) as unknown;
       const data = (json && typeof json === "object" && "data" in json
         ? (json as { data?: unknown }).data
-        : json) as { access_token?: unknown; refresh_token?: unknown } | null;
+        : json) as { access_token?: unknown; refresh_token?: unknown;user_id?:string;email?:string;role?:string;must_change_password?:boolean } | null;
       const access = typeof data?.access_token === "string" ? data.access_token : null;
       const nextRefresh = typeof data?.refresh_token === "string" ? data.refresh_token : null;
       if (!access) return null;
-      setTokens(access, nextRefresh);
+      if(epoch!==sessionEpoch)return null;
+      if(SECURE_BROWSER_SESSION){
+        const shared={...data,generation:crypto.randomUUID()} as BrowserRefresh;
+        localStorage.setItem(BROWSER_REFRESH_GENERATION,shared.generation);
+        applyBrowserRefresh(shared);refreshChannel().postMessage({type:"rotated",data:shared});
+      }else setTokens(access,nextRefresh);
       return access;
-    } catch {
-      return null;
-    }
+    };
+    try {
+      if(SECURE_BROWSER_SESSION){
+        if(!navigator.locks||!window.BroadcastChannel)throw new Error("Secure browser sessions require Web Locks and BroadcastChannel");
+        return await navigator.locks.request("smarttask:browser-refresh",refresh);
+      }
+      return await refresh();
+    }catch{return null;}
   })().finally(() => {
     refreshInFlight = null;
   });
@@ -193,7 +268,8 @@ const NO_REFRESH_PATHS = ["/auth/login", "/auth/register", "/auth/refresh", "/au
 
 function canRefresh(path: string, opts: ApiOptions): boolean {
   if (opts.skipRefresh || opts.token !== undefined) return false;
-  if (!getRefreshToken()) return false;
+  if(SECURE_BROWSER_SESSION){if(!localStorage.getItem(BROWSER_SESSION_MARKER))return false;}
+  else if (!getRefreshToken()) return false;
   return !NO_REFRESH_PATHS.some((p) => path.startsWith(p));
 }
 
@@ -234,6 +310,7 @@ export async function apiFetch<T = unknown>(path: string, opts: ApiOptions = {})
     "X-Client-Type": "WEB",
     Accept: "application/json",
   };
+  if(path.startsWith("/auth/web/")&&(opts.method??"POST").toUpperCase()!=="GET")headers["X-CSRF-Token"]=await browserCsrf(BASE);
   if (token) headers["Authorization"] = `Bearer ${token}`;
   if (opts.ifMatch) headers["If-Match"] = opts.ifMatch;
   if (opts.idempotencyKey) headers["Idempotency-Key"] = opts.idempotencyKey;

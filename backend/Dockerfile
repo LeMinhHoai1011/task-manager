@@ -2,14 +2,15 @@
 # Docker + Compose (no Maven/JDK on the host).
 FROM maven:3.9-eclipse-temurin-21 AS build
 WORKDIR /src
+ENV MAVEN_OPTS="-Xmx512m -XX:MaxMetaspaceSize=256m"
 
-# Cache dependencies separately from source changes.
+# Cache runtime dependency downloads without resolving every optional plugin.
 COPY pom.xml ./
 COPY app/pom.xml app/pom.xml
-RUN mvn -B -q -pl app -am -DskipTests dependency:go-offline || true
+RUN --mount=type=cache,target=/root/.m2 mvn -B -q -pl app -am dependency:resolve -DincludeScope=runtime
 
 COPY app/src app/src
-RUN mvn -B -q -pl app -am package -DskipTests
+RUN --mount=type=cache,target=/root/.m2 mvn -B -q -pl app -am package -Dmaven.test.skip=true
 
 # Runtime image: JRE + jar only.
 FROM eclipse-temurin:21-jre-jammy

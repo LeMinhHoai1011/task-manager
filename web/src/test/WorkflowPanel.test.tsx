@@ -68,3 +68,12 @@ it("hides every workflow mutation when capabilities are absent",()=>{
   expect(screen.queryByRole("button",{name:"Bắt đầu"})).not.toBeInTheDocument();
   expect(screen.queryByRole("button",{name:"Hủy công việc"})).not.toBeInTheDocument();
 });
+
+it("reopens a cancelled task with the matching workflow kind",async()=>{
+  mockApiFetch.mockReset();mockApiFetch.mockResolvedValue({data:{}});
+  render(<AuthProvider><WorkflowPanel taskId="cancelled" version="2" state="CANCELLED" allowedActions={["reopen"]}/></AuthProvider>);
+  fireEvent.change(screen.getByLabelText("Lý do thay đổi trạng thái"),{target:{value:"Cần làm tiếp"}});
+  fireEvent.click(screen.getByRole("button",{name:"Mở lại"}));
+  await waitFor(()=>expect(mockApiFetch).toHaveBeenCalledWith("/tasks/cancelled/workflow/reopen",
+    expect.objectContaining({body:{reason:"Cần làm tiếp",kind:"cancelled"},ifMatch:"2"})));
+});

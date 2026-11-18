@@ -1,7 +1,7 @@
 import "./styles.css";
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { createBrowserRouter, RouterProvider, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import type { ReactNode } from "react";
-import { AuthProvider } from "./auth/AuthContext";
+import { AuthProvider,useAuth } from "./auth/AuthContext";
 import { getToken } from "./api/client";
 import Layout from "./components/Layout";
 import Login from "./pages/Login";
@@ -24,11 +24,13 @@ import Settings from "./pages/Settings";
 import Admin from "./pages/Admin";
 import Ai from "./pages/Ai";
 import ChangePassword from "./pages/ChangePassword";
-import {AccessProvider,useAccess} from "./auth/AccessContext";
+import {AccessProvider,useAccess,interfaceProfile} from "./auth/AccessContext";
 import RoleGuide from "./pages/RoleGuide";
 import { ENABLE_AI } from "./config";
 import { RealtimeProvider } from "./realtime/RealtimeContext";
 import { ThemeProvider } from "./components/ThemeContext";
+
+const router=createBrowserRouter([{path:"*",element:<AppRoutes/>}]);
 
 export default function App() {
   return (
@@ -36,7 +38,15 @@ export default function App() {
     <AuthProvider>
       <RealtimeProvider>
         <AccessProvider>
-        <BrowserRouter>
+          <RouterProvider router={router}/>
+        </AccessProvider>
+      </RealtimeProvider>
+    </AuthProvider>
+    </ThemeProvider>
+  );
+}
+
+function AppRoutes(){return (
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
@@ -54,7 +64,7 @@ export default function App() {
                       <Route path="/my-tasks" element={<MyTasks />} />
                       <Route path="/notes" element={<Notes />} />
                       <Route path="/teams" element={<Teams />} />
-                      <Route path="/roles" element={<ProjectRoles />} />
+                      <Route path="/roles" element={<RequireProjectManager><ProjectRoles /></RequireProjectManager>} />
                       <Route path="/tasks/:id" element={<TaskDetail />} />
                       <Route path="/files" element={<Files />} />
                       <Route path="/calendar" element={<Calendar />} />
@@ -65,24 +75,27 @@ export default function App() {
                       <Route path="/change-password" element={<ChangePassword />} />
                       <Route path="/ai" element={ENABLE_AI ? <Ai /> : <Navigate to="/tasks" replace />} />
                       <Route path="/admin" element={<RequireAdmin><Admin /></RequireAdmin>} />
-                      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+                      <Route path="*" element={<RoleHome />} />
                     </Routes>
                   </Layout>
                 </RequireAuth>
               }
             />
           </Routes>
-        </BrowserRouter>
-        </AccessProvider>
-      </RealtimeProvider>
-    </AuthProvider>
-    </ThemeProvider>
-  );
-}
+);}
 
 /** Mọi route nghiệp vụ yêu cầu phiên đăng nhập; backend vẫn kiểm tra lại mọi request. */
+export function RoleHome() {
+  const access=useAccess();
+  if(access.loading)return <p role="status">Đang mở giao diện theo vai trò…</p>;
+  if(access.error)return <p role="alert">{access.error}<button onClick={access.reload}>Tải lại quyền</button></p>;
+  return <Navigate to={interfaceProfile(access).home} replace />;
+}
+
 export function RequireAuth({ children }: { children: ReactNode }) {
   const loc = useLocation();
+  const {ready}=useAuth();
+  if(ready===false)return <p role="status">Đang khôi phục phiên đăng nhập…</p>;
   if (!getToken()) return <Navigate to="/login" replace state={{ from: loc.pathname }} />;
   return <>{children}</>;
 }
@@ -92,5 +105,12 @@ export function RequireAdmin({ children }: { children: ReactNode }) {
   const access=useAccess();
   if(access.loading)return <p role="status">Đang kiểm tra quyền hệ thống…</p>;
   if(!access.systemAdmin)return <p role="alert">Bạn không có quyền quản trị hệ thống. Owner/Admin Workspace chỉ quản lý phạm vi Workspace được giao.</p>;
+  return <>{children}</>;
+}
+
+export function RequireProjectManager({children}:{children:ReactNode}) {
+  const access=useAccess();
+  if(access.loading)return <p role="status">Đang kiểm tra quyền quản lý…</p>;
+  if(access.error||!access.projects.some(project=>project.canManage))return <p role="alert">Chỉ quản lý dự án được mở giao diện phân quyền.</p>;
   return <>{children}</>;
 }

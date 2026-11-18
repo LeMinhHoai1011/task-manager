@@ -1,5 +1,24 @@
 # Phân cấp vai trò và ràng buộc giao diện
 
+## Giao diện theo chức năng — cập nhật 14/11/2026
+
+Trang mở sau đăng nhập chờ `/me/access` của đúng tài khoản. Vai trò không được suy ra
+từ username hoặc Owner của Workspace cá nhân. API bổ sung `workspaces[].type`.
+
+| Giao diện | Trang mở | Chức năng chính |
+| --- | --- | --- |
+| Quản trị hệ thống | `/admin` | Tài khoản, cấu hình, nhật ký; duyệt tài khoản cần grant `ACCOUNT_APPROVE_GLOBAL` riêng |
+| Quản lý | `/dashboard` | Lập kế hoạch và theo dõi; chỉ hiện giao việc/phân quyền khi quản lý Project tương ứng |
+| Nhân viên | `/tasks` | Việc được giao, bắt đầu, checklist, ghi thời gian, bình luận và nộp duyệt |
+| Người dùng cá nhân | `/my-tasks` | Công việc, ghi chú và lịch riêng; không hiện menu giao việc khi chưa tham gia dự án |
+| Khách chỉ đọc | `/projects` | Theo dõi dự án/task được cấp quyền; không chọn batch action |
+
+Sidebar tách Cá nhân, Thực hiện/Theo dõi/Quản lý dự án, Quản lý Workspace và Quản trị
+hệ thống. Toolbar Nhân viên chỉ có START/SUBMIT; thao tác metadata/assignment chỉ hiện
+nếu mọi task đã chọn có quyền tương ứng. URL `/roles` chặn người không quản lý Project
+trước khi dựng form. Admin hệ thống/Workspace không tự đọc nội dung Project; backend
+vẫn kiểm tra mọi request. Owner của PERSONAL không được xem là quản lý nhóm.
+
 Áp dụng cho web/API local sau lần rà soát 13/11/2026. Mở **Vai trò và việc cần làm** (`/my-role`) để xem vai trò thực tế của tài khoản theo từng phạm vi.
 
 ## Phạm vi và cấp quyền

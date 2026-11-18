@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiFetch, unwrapData, unwrapPage } from "../api/client";
+import {useAccess,interfaceProfile} from "../auth/AccessContext";
+import {newIdempotencyKey} from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { t } from "../i18n";
 import { Card, EmptyState, ErrorAlert, Skeleton, StatusBadge } from "../components/ui";
@@ -63,6 +65,10 @@ function getGreeting(): string {
 
 export default function Dashboard() {
   const { user } = useAuth();
+  const access=useAccess();
+  const profile=interfaceProfile(access);
+  const creatable=access.projects.filter(p=>p.canCreateTask);
+  const pendingCreate=useRef<{signature:string;key:string}|null>(null);
   const [tasks, setTasks] = useState<TaskSummary[]>([]);
   const [summary, setSummary] = useState<Overview | null>(null);
   const [pinnedNotes, setPinnedNotes] = useState<PinnedNote[]>([]);
@@ -83,7 +89,6 @@ export default function Dashboard() {
   const [quickTitle, setQuickTitle] = useState("");
   const [quickType, setQuickType] = useState<"personal" | "project">("personal");
   const [quickProjectId, setQuickProjectId] = useState("");
-  const [projectsList, setProjectsList] = useState<Array<{ id: string; name: string }>>([]);
   const [creatingTask, setCreatingTask] = useState(false);
   const [quickMessage, setQuickMessage] = useState<string | null>(null);
 
@@ -108,7 +113,7 @@ export default function Dashboard() {
       setSummary(data);
       setTasks(data.focus);
     } catch (e: any) {
-      if (request === requestSequence.current) setError(e?.uiMessage ?? t("error.generic"));
+      if (request === requestSequence.current){setSummary(null);setTasks([]);setError(e?.uiMessage ?? t("error.generic"));}
     } finally {
       if (request === requestSequence.current) setLoading(false);
     }
@@ -135,8 +140,7 @@ export default function Dashboard() {
     try {
       const res = await apiFetch<any>(`/projects?limit=100`);
       const items = (res?.items || res?.data?.items || []) as any[];
-      setProjectCount(items.length);
-      setProjectsList(items.map((p: any) => ({ id: p.id, name: p.name })));
+      setProjectCount(unwrapPage<any>(res).total??items.length);
       if (items.length > 0 && !quickProjectId) {
         setQuickProjectId(items[0].id);
       }
@@ -155,26 +159,32 @@ export default function Dashboard() {
     void loadRecentNotifications();
   });
 
+  useEffect(()=>{if(!access.projects.some(p=>p.id===quickProjectId&&p.canCreateTask))setQuickProjectId(access.projects.find(p=>p.canCreateTask)?.id??"");},[access.projects,quickProjectId]);
+
   const handleQuickCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!quickTitle.trim()) return;
+    if (creatingTask||!quickTitle.trim()) return;
+    if(quickType==="project"&&!creatable.some(p=>p.id===quickProjectId)){setQuickMessage("Chọn dự án bạn có quyền tạo công việc.");return;}
+    const signature=JSON.stringify([quickType,quickTitle.trim(),quickProjectId]);
+    if(pendingCreate.current?.signature!==signature)pendingCreate.current={signature,key:newIdempotencyKey()};
     setCreatingTask(true);
     setQuickMessage(null);
     try {
       if (quickType === "personal") {
         await apiFetch("/me/tasks", {
-          method: "POST",
+          method: "POST",idempotencyKey:pendingCreate.current.key,
           body: { title: quickTitle.trim() },
         });
       } else {
         await apiFetch("/tasks", {
-          method: "POST",
+          method: "POST",idempotencyKey:pendingCreate.current.key,
           body: {
             title: quickTitle.trim(),
-            project_id: quickProjectId || projectsList[0]?.id,
+            project_id: quickProjectId,
           },
         });
       }
+      pendingCreate.current=null;
       setQuickTitle("");
       setQuickCreateOpen(false);
       setQuickMessage("Tạo công việc thành công!");
@@ -270,7 +280,7 @@ export default function Dashboard() {
             {greeting}
           </h1>
           <p className="page-subtitle text-slate-500 dark:text-slate-400 mt-1">
-            Những việc cần tập trung, tiến độ dự án và cập nhật trong ngày.
+            {profile.label}: {profile.description}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2.5">
@@ -578,7 +588,7 @@ export default function Dashboard() {
           <Card className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2 mb-3">
               <h2 className="section-title text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                <span className="text-amber-500 font-bold">★</span>
+                <span className="text-amber-700 dark:text-amber-300 font-bold">★</span>
                 <span>Ghi chú đã ghim</span>
               </h2>
               <Link to="/notes" className="text-xs text-blue-600 dark:text-blue-400 font-semibold hover:underline">
@@ -648,7 +658,7 @@ export default function Dashboard() {
                   >
                     Việc cá nhân
                   </button>
-                  <button
+                  {creatable.length>0&&<button
                     type="button"
                     onClick={() => setQuickType("project")}
                     className={`px-3 py-2 text-xs font-semibold rounded-lg border transition ${
@@ -658,7 +668,7 @@ export default function Dashboard() {
                     }`}
                   >
                     Việc dự án
-                  </button>
+                  </button>}
                 </div>
               </div>
 
@@ -670,7 +680,7 @@ export default function Dashboard() {
                     value={quickProjectId}
                     onChange={(e) => setQuickProjectId(e.target.value)}
                   >
-                    {projectsList.map((p) => (
+                    {creatable.map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.name}
                       </option>

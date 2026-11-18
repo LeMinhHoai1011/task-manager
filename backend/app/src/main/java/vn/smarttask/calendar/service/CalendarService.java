@@ -31,6 +31,63 @@ public class CalendarService {
   private final NotificationService notifications;
   private final AuditService audit;
   private final OutboxService outbox;
+  @org.springframework.beans.factory.annotation.Autowired private vn.smarttask.task.service.PersonalTaskService personal;
+  @org.springframework.beans.factory.annotation.Autowired private vn.smarttask.common.repo.IdempotencyRecordRepository records;
+  @org.springframework.beans.factory.annotation.Autowired private com.fasterxml.jackson.databind.ObjectMapper json;
+
+  public record Appointment(String title, String description, OffsetDateTime due_at, OffsetDateTime remind_at, String timezone) {}
+
+  /** Store the personal task and its reminder together; retries return the same rule. */
+  @Transactional
+  public ReminderRule createAppointment(UUID actor, Appointment input, String key) {
+    if (key == null || key.isBlank() || key.length() > 200)
+      throw AppException.badRequest("IDEMPOTENCY_KEY_REQUIRED", "Key must contain 1–200 characters");
+    String scoped = "appointment:" + actor + ":" + key;
+    jdbc.queryForObject("select pg_advisory_xact_lock(hashtextextended(?,0))", Object.class, scoped);
+    try {
+      String hash = vn.smarttask.common.service.TokenHash.sha256(json.writeValueAsString(input));
+      var previous = records.findByKey(scoped);
+      if (previous.isPresent()) {
+        var saved = json.readTree(previous.get().getResponseBody());
+        if (!hash.equals(saved.path("hash").asText()))
+          throw AppException.stateConflict("IDEMPOTENCY_CONFLICT", "Key was used with another appointment");
+        return requireOwned(actor, UUID.fromString(saved.path("ruleId").asText()));
+      }
+      if (input.due_at() == null || !input.due_at().isAfter(OffsetDateTime.now(ZoneOffset.UTC))
+          || input.remind_at() == null || input.remind_at().isAfter(input.due_at()))
+        throw AppException.badRequest("SCHEDULE_INVALID", "Appointment must be in the future and reminder must not follow it");
+      if (input.description() != null && input.description().length() > 10000)
+        throw AppException.badRequest("DESCRIPTION_INVALID", "Description must not exceed 10000 characters");
+      var task = personal.create(actor, input.title());
+      task = personal.edit(actor, task.getId(), new vn.smarttask.task.service.PersonalTaskService.Edit(
+          input.title(), input.description(), null, "MEDIUM", null, input.due_at(), false, input.timezone()), task.getVersion());
+      var rule = createRule(actor, task.getId(), input.remind_at());
+      var record = new vn.smarttask.common.entity.IdempotencyRecord(UuidV7.generate(), scoped, actor);
+      record.setStatusCode(200);
+      record.setResponseBody(json.writeValueAsString(java.util.Map.of("hash", hash, "ruleId", rule.getId())));
+      records.save(record);
+      return rule;
+    } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+      throw new IllegalStateException("Invalid appointment record", e);
+    }
+  }
+
+  @Transactional
+  public ReminderRule updateReminder(UUID actor, UUID id, OffsetDateTime time, boolean cancel) {
+    var rule = rules.findByIdForUpdate(id).filter(r -> actor.equals(r.getUserId()))
+        .orElseThrow(() -> AppException.notFound("Reminder rule not found"));
+    if (cancel && "CANCELLED".equals(rule.getStatus())) return rule;
+    if (java.util.Set.of("FIRED", "CANCELLED").contains(rule.getStatus()))
+      throw AppException.stateConflict("REMINDER_TERMINAL", "Reminder is already terminal");
+    if (cancel) { rule.setStatus("CANCELLED"); rule.setPaused(false); }
+    else {
+      if (time == null || !time.isAfter(OffsetDateTime.now(ZoneOffset.UTC)))
+        throw AppException.badRequest("REMINDER_TIME_INVALID", "Reminder must be in the future");
+      rule.setRemindAt(time);
+    }
+    audit.append(actor, cancel ? "reminder.cancel" : "reminder.update", "task", rule.getTaskId(), "ALLOWED", null, "{}");
+    return rules.save(rule);
+  }
 
   public CalendarService(TaskRepository tasks, ReminderRuleRepository rules,
       NotificationService notifications, AuditService audit, OutboxService outbox) {
@@ -97,11 +154,14 @@ public class CalendarService {
   @Transactional
   public int resume(UUID actor, UUID ruleId) {
     if(jdbc!=null)jdbc.queryForObject("select pg_advisory_xact_lock(hashtextextended(?,83640913))",Object.class,actor.toString());
-    ReminderRule r = requireOwned(actor, ruleId);
+    // Lock the digest's entire write set in one order, including the requested rule.
+    var owned = rules.findByUserIdForUpdate(actor);
+    ReminderRule r = owned.stream().filter(rule -> ruleId.equals(rule.getId())).findFirst()
+        .orElseThrow(() -> AppException.notFound("Reminder rule not found"));
     if("CANCELLED".equals(r.getStatus()))throw AppException.stateConflict("REMINDER_TERMINAL","Reminder is cancelled");
     boolean wasPaused=r.isPaused();
     OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
-    var missed=rules.findByUserId(actor).stream().filter(x->x.isPaused()&&"PAUSED".equals(x.getStatus())&&!x.isDigestSent()&&!x.getRemindAt().isAfter(now)).toList();
+    var missed=owned.stream().filter(x->x.isPaused()&&"PAUSED".equals(x.getStatus())&&!x.isDigestSent()&&!x.getRemindAt().isAfter(now)).toList();
     r.setPaused(false);
     if(!"FIRED".equals(r.getStatus()))r.setStatus("ACTIVE");
     rules.save(r);
@@ -117,7 +177,7 @@ public class CalendarService {
   }
 
   private ReminderRule requireOwned(UUID actor, UUID ruleId) {
-    ReminderRule r = rules.findById(ruleId)
+    ReminderRule r = rules.findByIdForUpdate(ruleId)
         .orElseThrow(() -> AppException.notFound("Reminder rule not found"));
     if (!r.getUserId().equals(actor)) throw AppException.notFound("Reminder rule not found");
     return r;
