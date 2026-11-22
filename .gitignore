@@ -39,3 +39,9 @@ backend/app/var/files/
 
 # Browser failure captures remain local; publish only reviewed screenshots.
 docs/screenshots/**/failure.png
+
+# Local release state and test reports
+/deploy/.release.*
+/deploy/release.images
+/deploy/previous.images
+/web/vitest-junit.xml

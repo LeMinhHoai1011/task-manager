@@ -1,0 +1,2 @@
+# Deployment scripts also run in Linux containers after checkout on Windows.
+deploy/*.sh text eol=lf

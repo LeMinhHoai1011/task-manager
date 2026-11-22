@@ -1,9 +1,22 @@
 name: Production validation
 on:
   pull_request:
+  push:
+    branches: [main, 'codex/ci-cd']
   workflow_dispatch:
+    inputs:
+      deploy:
+        description: Request an approved production deployment from main
+        type: boolean
+        default: false
+concurrency:
+  group: validation-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 permissions:
   contents: read
+defaults:
+  run:
+    shell: bash
 jobs:
   web:
     runs-on: ubuntu-latest
@@ -12,6 +25,8 @@ jobs:
         working-directory: web
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@v4
         with:
           version: 9.15.4
@@ -23,7 +38,13 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm lint
-      - run: pnpm test
+      - run: pnpm run test --reporter=default --reporter=junit --outputFile.junit=vitest-junit.xml
+      - run: python3 ../scripts/check-test-reports.py web vitest-junit.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: web-evidence
+          path: web/vitest-junit.xml
       - run: pnpm build
       - run: pnpm audit --audit-level moderate
   backend:
@@ -52,6 +73,8 @@ jobs:
       SMARTTASK_IT_MINIO_BUCKET: smarttask-test
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -61,6 +84,7 @@ jobs:
       - run: curl --fail --retry 30 --retry-delay 2 --retry-connrefused http://127.0.0.1:9090/minio/health/live
       - working-directory: backend
         run: sh ./mvnw -B -pl app -Dspring.datasource.hikari.maximum-pool-size=4 -Dspring.test.context.cache.maxSize=4 '-Dtest=*Test,*IT' package
+      - run: python3 scripts/check-test-reports.py backend backend/app/target/surefire-reports/TEST-*.xml
       - working-directory: backend
         run: sh ./mvnw -B -pl app dependency:tree -DoutputType=tgf -DoutputFile=target/dependencies.tgf
       - shell: pwsh
@@ -73,11 +97,119 @@ jobs:
             backend/app/target/surefire-reports
             backend/app/target/advisories.json
   images-and-secrets:
+    needs: [web, backend]
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - run: docker run --rm -v "$PWD:/repo:ro" -w /repo zricethezav/gitleaks:v8.24.3 git /repo --redact --exit-code 1
-      - run: docker build -t smarttask-backend:validation backend
-      - run: docker build -t smarttask-web:validation web
+          persist-credentials: false
+      - name: Scan Git history for secrets
+        run: |
+          docker run --rm --network none -v "$PWD:/repo:ro" -w /repo \
+            -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/repo \
+            zricethezav/gitleaks:v8.24.3 git /repo --redact --exit-code 1
+      - name: Build release images
+        env:
+          VITE_API_BASE: ${{ vars.VITE_API_BASE || '/api/v1' }}
+          VITE_ENABLE_AI: ${{ vars.VITE_ENABLE_AI || 'true' }}
+          VITE_SECURE_BROWSER_SESSION: ${{ vars.VITE_SECURE_BROWSER_SESSION || 'false' }}
+        run: |
+          migrations=$(git ls-tree -r HEAD backend/app/src/main/resources/db/migration | sha256sum | cut -d' ' -f1)
+          docker build --label "org.opencontainers.image.revision=$GITHUB_SHA" --label "vn.smarttask.flyway-migrations=$migrations" -t smarttask-backend:validation backend
+          docker build --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --build-arg VITE_API_BASE --build-arg VITE_ENABLE_AI --build-arg VITE_SECURE_BROWSER_SESSION \
+            -t smarttask-web:validation web
+      - name: Verify deployment scripts and Compose
+        run: |
+          for script in deploy/backup.sh deploy/smoke.sh deploy/update.sh deploy/restore.sh; do sh -n "$script"; done
+          sh deploy/test-update.sh
+          BACKEND_IMAGE=smarttask-backend:validation WEB_IMAGE=smarttask-web:validation \
+            docker compose --env-file deploy/.env.example -f deploy/docker-compose.yml -f deploy/compose.release.yml config --format json \
+            | jq -e '(.services.backend | has("build") | not) and (.services.web | has("build") | not)'
+      - name: Save checked images
+        if: needs.web.result == 'success' && needs.backend.result == 'success' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: docker save smarttask-backend:validation smarttask-web:validation | gzip -1 > release-images.tar.gz
+      - uses: actions/upload-artifact@v4
+        if: needs.web.result == 'success' && needs.backend.result == 'success' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        with:
+          name: release-images
+          path: release-images.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+          overwrite: true
+
+  release-gate:
+    name: SmartTask release gate
+    if: always()
+    needs: [web, backend, images-and-secrets]
+    runs-on: ubuntu-latest
+    env:
+      WEB: ${{ needs.web.result }}
+      BACKEND: ${{ needs.backend.result }}
+      IMAGES: ${{ needs.images-and-secrets.result }}
+    steps:
+      - run: |
+          printf 'Web: %s\nBackend: %s\nImages and secrets: %s\n' "$WEB" "$BACKEND" "$IMAGES"
+          test "$WEB/$BACKEND/$IMAGES" = success/success/success
+
+  publish:
+    needs: release-gate
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    outputs:
+      backend: ${{ steps.publish.outputs.backend }}
+      web: ${{ steps.publish.outputs.web }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-images
+      - run: docker load -i release-images.tar.gz
+      - id: publish
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          for service in backend web; do
+            image="ghcr.io/${GITHUB_REPOSITORY,,}-$service"
+            tag="$image:$GITHUB_SHA"
+            docker tag "smarttask-$service:validation" "$tag"
+            docker push "$tag"
+            digest_ref=$(docker image inspect "$tag" | jq -er --arg prefix "$image@" '.[0].RepoDigests[] | select(startswith($prefix))')
+            printf '%s=%s\n' "$service" "$digest_ref" >> "$GITHUB_OUTPUT"
+            printf -- '- %s: `%s`\n' "$service" "$digest_ref" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+  deploy:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.deploy
+    needs: [release-gate, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: production
+    concurrency:
+      group: smarttask-production
+      cancel-in-progress: false
+    permissions: {}
+    steps:
+      - name: Deploy verified image digests
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          BACKEND_IMAGE: ${{ needs.publish.outputs.backend }}
+          WEB_IMAGE: ${{ needs.publish.outputs.web }}
+        run: |
+          : "${DEPLOY_HOST:?}" "${DEPLOY_SSH_KEY:?}" "${DEPLOY_KNOWN_HOSTS:?}" "${BACKEND_IMAGE:?}" "${WEB_IMAGE:?}"
+          umask 077
+          ssh_dir=$(mktemp -d)
+          trap 'rm -f "$ssh_dir/key" "$ssh_dir/known_hosts"; rmdir "$ssh_dir"' EXIT
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$ssh_dir/key"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$ssh_dir/known_hosts"
+          printf '%s\n' "$GITHUB_SHA" "$BACKEND_IMAGE" "$WEB_IMAGE" |
+            ssh -T -i "$ssh_dir/key" -o BatchMode=yes -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$ssh_dir/known_hosts" \
+              -o GlobalKnownHostsFile=/dev/null -o ConnectTimeout=15 "smarttask-deploy@$DEPLOY_HOST"

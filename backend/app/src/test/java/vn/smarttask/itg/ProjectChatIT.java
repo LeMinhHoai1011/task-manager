@@ -7,7 +7,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.mock.mockito.SpyBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import vn.smarttask.common.AppException;
@@ -19,7 +19,7 @@ import vn.smarttask.realtime.RealtimeRegistry;
 class ProjectChatIT extends ItgBase {
   @Autowired ProjectChatService chat;
   @Autowired PlatformTransactionManager transactions;
-  @SpyBean RealtimeRegistry realtime;
+  @MockitoSpyBean RealtimeRegistry realtime;
   private record Room(AppUser manager,AppUser member,UUID project) {}
   private Room room() {
     var manager=activeUser("chatpm","Passw0rd!");var member=activeUser("chatmember","Passw0rd!");
