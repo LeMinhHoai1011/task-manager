@@ -5,9 +5,14 @@ set -eu
 umask 077
 cd "$(dirname "$0")"
 
-STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+STAMP=${1:-$(date -u +%Y%m%dT%H%M%SZ)}
+printf '%s\n' "$STAMP" | grep -Eq '^[0-9]{8}T[0-9]{6}Z$'
+export LC_ALL=C
 OUT="$(pwd)/${BACKUP_DIR:-backups}"
 mkdir -p "$OUT"
+for part in db-dump minio-tgz files-tgz images-json schema-txt manifest-sha256; do
+  [ ! -e "$OUT/${part%-*}-$STAMP.${part#*-}" ] || exit 1
+done
 
 # Git Bash/MSYS paths (/d/task/...) are not understood by Docker Desktop.
 # cygpath is only present on Windows; on Linux this is a no-op.
@@ -41,10 +46,14 @@ done
 resume_services() {
   result=$?
   trap - EXIT HUP INT TERM
+  if [ "$result" -eq 0 ] && [ "${BACKUP_KEEP_APPS_STOPPED:-0}" = 1 ]; then
+    RESUME=minio
+  fi
   if [ -n "$RESUME" ]; then docker compose start $RESUME || result=1; fi
   exit "$result"
 }
-trap resume_services EXIT HUP INT TERM
+trap resume_services EXIT
+trap 'exit 1' HUP INT TERM
 docker compose stop -t 60 web backend minio
 
 echo "[1/3] Postgres -> $OUT/db-$STAMP.dump"
@@ -52,14 +61,14 @@ docker compose exec -T db sh -c \
   'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$OUT/db-$STAMP.dump"
 
 echo "[2/3] MinIO -> $OUT/minio-$STAMP.tgz"
-docker run --rm \
+docker run --rm --memory 256m \
   -v "$MINIO_VOLUME":/data:ro \
   -v "$OUT_DOCKER":/backup \
   alpine:3.20 sh -c "tar czf /backup/minio-$STAMP.tgz -C /data ."
 
 if [ -n "$FILES_VOLUME" ]; then
   echo "[3/3] local files -> $OUT/files-$STAMP.tgz"
-  docker run --rm \
+  docker run --rm --memory 256m \
     -v "$FILES_VOLUME":/data:ro \
     -v "$OUT_DOCKER":/backup \
     alpine:3.20 sh -c "tar czf /backup/files-$STAMP.tgz -C /data ."
@@ -71,8 +80,15 @@ fi
 # or secret values are copied. Encrypt backups before off-host transfer.
 docker compose images --format json > "$OUT/images-$STAMP.json"
 docker compose exec -T db sh -c \
-  'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "select version,script,checksum,success from flyway_schema_history order by installed_rank"' > "$OUT/schema-$STAMP.txt"
-(cd "$OUT" && sha256sum "db-$STAMP.dump" "minio-$STAMP.tgz" "files-$STAMP.tgz" "images-$STAMP.json" "schema-$STAMP.txt" > "manifest-$STAMP.sha256")
+  'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "select version,script,checksum,success from flyway_schema_history order by installed_rank"' > "$OUT/schema-$STAMP.txt"
+(cd "$OUT" && sha256sum "db-$STAMP.dump" "minio-$STAMP.tgz" "files-$STAMP.tgz" "images-$STAMP.json" "schema-$STAMP.txt" > "manifest-$STAMP.sha256.tmp")
+(cd "$OUT" && sha256sum -c "manifest-$STAMP.sha256.tmp")
+docker compose exec -T db pg_restore --file=/dev/null < "$OUT/db-$STAMP.dump"
+for archive in "$OUT/minio-$STAMP.tgz" "$OUT/files-$STAMP.tgz"; do
+  gzip -t "$archive"
+  tar -tzf "$archive" >/dev/null
+done
+mv "$OUT/manifest-$STAMP.sha256.tmp" "$OUT/manifest-$STAMP.sha256"
 # Retention is deliberately a separate operation against verified complete sets;
 # never delete unrelated files from an operator-supplied BACKUP_DIR.
 ls -lh "$OUT" | tail -n 10

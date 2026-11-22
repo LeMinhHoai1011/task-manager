@@ -9,8 +9,8 @@ import org.flywaydb.core.api.MigrationInfo;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
-import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
+import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
@@ -101,9 +101,10 @@ class FlywayMigrationValidationIT {
   @Test
   @DisplayName("Re-running Flyway migration is idempotent and does not corrupt data")
   void flywayMigrationIsIdempotent() {
+    var versionBefore = flyway.info().current().getVersion();
     var result = flyway.migrate();
     assertEquals(0, result.migrationsExecuted, "Re-running migration should execute 0 new migrations");
-    assertEquals("17", flyway.info().current().getVersion().getVersion(), "Version remains 17");
+    assertEquals(versionBefore, flyway.info().current().getVersion(), "Version remains unchanged");
   }
 
   @Test

@@ -1,0 +1,9 @@
+# Compose 2.24.4+ supports !reset. Preserve all volumes and service settings
+# from docker-compose.yml while removing both application build contexts.
+services:
+  backend:
+    build: !reset null
+    image: ${BACKEND_IMAGE:?set BACKEND_IMAGE}
+  web:
+    build: !reset null
+    image: ${WEB_IMAGE:?set WEB_IMAGE}

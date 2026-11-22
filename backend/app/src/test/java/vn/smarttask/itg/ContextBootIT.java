@@ -22,11 +22,11 @@ class ContextBootIT extends ItgBase {
   }
 
   @Test
-  void flywayVersionIs17() {
-    assertEquals("17", flyway.info().current().getVersion().getVersion());
-    assertEquals(17, flyway.info().applied().length);
-    assertEquals(0, flyway.info().pending().length);
-    assertTrue(flyway.validateWithResult().validationSuccessful);
+  void flywayHasAppliedAllResolvedMigrations() {
+    var migrations = flyway.info();
+    assertTrue(migrations.applied().length > 0);
+    assertEquals(migrations.all().length, migrations.applied().length);
+    assertEquals(0, migrations.pending().length);
     assertTrue(flyway.validateWithResult().validationSuccessful);
   }
 

@@ -2,6 +2,10 @@ server:
   port: 8080
 
 spring:
+  http:
+    converters:
+      # shortcut: keep the API on Jackson 2 until the Jackson 3 migration.
+      preferred-json-mapper: jackson2
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://127.0.0.1:5432/smarttask}
     username: ${SPRING_DATASOURCE_USERNAME:smarttask}

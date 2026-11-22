@@ -25,12 +25,8 @@ Chỉ Caddy mở port ra ngoài. Postgres và MinIO không publish port.
 - Docker Engine 24+ và Docker Compose v2 (`docker compose version`).
 - Domain (ví dụ `app.example.com`) trỏ A/AAAA record về IP VPS nếu deploy HTTPS.
 - Mở firewall: `22/tcp` (SSH), `80/tcp`, `443/tcp`, `443/udp` (HTTP/3).
-- Không cần Java/Maven/Node trên VPS: Dockerfile backend và web tự build trong
-  container. Lần build đầu cần Internet để tải dependency.
-- Nếu muốn build/chạy ngoài Docker để dev: Java 21 + Maven, Node 22 + pnpm.
-
-> Repo này không phải git repo. Khi deploy, copy thư mục dự án lên VPS hoặc
-> đưa lên git riêng của bạn. Không copy `deploy/.env` lên nguồn công khai.
+- Ubuntu 24.04 dùng Docker Engine và Docker Compose 2.24.4 trở lên.
+- Chế độ build local cần Docker hoặc Java 21, Maven, Node và pnpm.
 
 ---
 
@@ -39,7 +35,7 @@ Chỉ Caddy mở port ra ngoài. Postgres và MinIO không publish port.
 ### 2.1 Build backend
 
 Backend được build **bên trong Docker** (multi-stage `maven` -> `jre`), nên máy
-local/VPS chỉ cần Docker + Compose, không cần Maven/JDK. Lần build đầu cần
+local chỉ cần Docker + Compose, không cần Maven/JDK. Lần build đầu cần
 Internet để tải dependency Maven; các lần sau dùng layer cache.
 
 Nếu muốn chạy backend ngoài Docker để dev, vẫn có thể build jar thủ công:
@@ -116,115 +112,171 @@ Invoke-RestMethod http://localhost:8088/actuator/health
 5. Bootstrap sẽ activate admin, cấp `SYSTEM_ADMIN` (reason `BOOTSTRAP`) và tạo
    workspace cá nhân. Đăng nhập bằng `admin` + mật khẩu đã đăng ký.
 
-Các user khác: tự đăng ký -> admin vào `/admin` duyệt (`PENDING` -> `ACTIVE`).
+Các user khác tự đăng ký và được duyệt qua `/admin` bởi tài khoản có grant
+`ACCOUNT_APPROVE_GLOBAL`. Bootstrap chỉ cấp `SYSTEM_ADMIN`. Với cài đặt mới,
+cần hoàn tất cấp quyền duyệt qua quy trình quản trị trước khi tạo fixture smoke.
 Nếu muốn đóng đăng ký công khai, đặt `SELF_REGISTRATION=false` sau khi đã tạo
 đủ tài khoản; khi đó cần tạo user qua API admin (chưa có form tạo user trên web).
 
 ---
 
-## 3. Deploy lên VPS có domain + HTTPS
+## 3. Thiết lập CI/CD
 
-### 3.1 Chuẩn bị VPS
+Workflow **Production validation** chạy khi mở/cập nhật PR, push lên `main`
+hoặc `codex/ci-cd`, và khi chạy thủ công. Check **SmartTask release gate**
+yêu cầu tất cả job kiểm thử, bảo mật và build thành công. Maven chạy các lớp
+`*Test,*IT` với PostgreSQL và MinIO thật, gồm kiểm tra Flyway. JUnit XML và
+kết quả OSV nằm trong artifacts. Danh sách ca được phép skip nằm trong
+`scripts/check-test-reports.py`. Để kiểm tra nhánh mà không deploy, chạy PR
+hoặc chọn `deploy=false`.
 
-```bash
-# Ubuntu
-sudo apt update && sudo apt install -y ca-certificates curl
-curl -fsSL https://get.docker.com | sudo sh
-sudo usermod -aG docker "$USER"   # logout/login lại
-docker compose version
-```
+Workflow chạy trên `main` sẽ publish hai image với tag SHA đầy đủ
+`ghcr.io/leminhhoai1011/task-manager-{backend,web}:<sha>`. Bước deploy dùng
+digest từ cùng lần chạy workflow. Nó chỉ chạy khi chọn `deploy=true` trên
+`main` và qua phê duyệt của environment `production`.
 
-Mở firewall (ví dụ UFW):
+1. Trong Settings → Rules/Branches, yêu cầu PR được duyệt và check
+   **SmartTask release gate** từ GitHub Actions, bật yêu cầu cập nhật với main,
+   cấm force-push, xóa nhánh và bypass. Chọn check sau khi nó xuất hiện trong
+   một lần chạy thành công. Yêu cầu người có quyền duyệt xác nhận thay đổi
+   workflow, danh sách skip, migration và script deploy.
+2. Tạo environment `production`, chỉ cho phép nhánh `main`, bật required
+   reviewers, prevent self-review và tắt admin bypass nếu gói hỗ trợ. Giữ
+   environment chưa cấp SSH key nếu chưa thiết lập được bước phê duyệt.
+3. Đặt environment secrets `DEPLOY_HOST` (DNS hoặc IP, SSH port 22),
+   `DEPLOY_SSH_KEY` (private key riêng cho deploy), và `DEPLOY_KNOWN_HOSTS`
+   (dòng OpenSSH đã đối chiếu fingerprint từ console VPS, ví dụ dùng
+   `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`). Quyền GHCR publish
+   dùng `GITHUB_TOKEN` có `packages: write` trong job publish; cho phép
+   repository này ghi hai package nếu đã tồn tại.
 
-```bash
-sudo ufw allow 22/tcp
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-sudo ufw allow 443/udp
-sudo ufw enable
-```
+Tham khảo [branch protection](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches)
+và [deployment environments](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments).
 
-DNS: tạo bản ghi `A` (và `AAAA` nếu có IPv6) cho `app.example.com` trỏ về IP VPS.
-Chờ DNS propagate (`dig +short app.example.com`).
+## 4. Chuẩn bị Ubuntu 24.04
 
-### 3.2 Cấu hình
+- Cài Docker Engine, Compose v2.24.4+, `jq`, `curl` và `util-linux`.
+  Bật Docker khi boot bằng `sudo systemctl enable --now docker`. Máy 4 GB
+  dùng giới hạn RAM trong Compose và chỉ chạy một cặp backend/web. Không đặt
+  GitHub runner hay Ollama trên VPS này. Dành đủ dung lượng để chứa image
+  cũ, image mới và toàn bộ bộ backup.
+- Chép thư mục `deploy/` đã duyệt vào `/opt/smarttask/deploy`. Thư mục, script,
+  Compose và cấu hình trên host do root sở hữu. Giữ tên project/mount hiện tại
+  (`smarttask` mặc định) khi chuyển từ hệ thống cũ. Giữ nguyên `.env` của
+  instance đang chạy. Với máy mới, tạo từ `.env.example` và đặt quyền 0600.
+  Cấu hình DNS cho `DOMAIN` và mở cổng TCP 22, 80, 443 và UDP 443 nếu dùng HTTP/3.
+- Nếu GHCR private, đăng nhập trên host dưới root bằng credential chỉ có quyền
+  đọc package (`docker login ghcr.io --password-stdin`). Runner chỉ gửi SHA
+  và digest qua SSH. Nếu instance hiện tại dùng giá trị `VITE_*` khác mặc định,
+  đặt repository variables `VITE_API_BASE`, `VITE_ENABLE_AI` và
+  `VITE_SECURE_BROWSER_SESSION` tương ứng trước khi build. Đây là giá trị
+  công khai được đóng gói vào SPA. Thay đổi chúng cần build image mới.
+- Tạo user riêng `smarttask-deploy` với quyền đăng nhập bằng đúng key tự động.
+  Không thêm vào nhóm `docker`. Dùng `visudo` để cho phép duy nhất lệnh cố định
+  sau, với `""` giới hạn lệnh sudo không có đối số.
 
-```bash
-cd /opt/smarttask/deploy       # thư mục đã copy lên VPS
-cp .env.example .env
-chmod 600 .env
-```
+  ```sudoers
+  smarttask-deploy ALL=(root) NOPASSWD: /opt/smarttask/deploy/update.sh ""
+  ```
 
-Sinh mật khẩu mạnh:
+  Trong `authorized_keys` của user, dùng một dòng
 
-```bash
-openssl rand -base64 36
-```
+  ```text
+  restrict,command="/usr/bin/sudo -n /opt/smarttask/deploy/update.sh" ssh-ed25519 AAAA... smarttask-ci
+  ```
 
-Điền `.env`:
+  Đặt quyền chạy cho `update.sh` đã được root kiểm tra. Không cấp quyền ghi
+  thư mục deploy hoặc cấp shell tương tác qua key này.
 
-```dotenv
-DOMAIN=app.example.com
-HTTP_PORT=80
-HTTPS_PORT=443
-TZ=Asia/Ho_Chi_Minh
+### 4.1 Khởi tạo và chạy thử
 
-POSTGRES_DB=smarttask
-POSTGRES_USER=smarttask
-POSTGRES_PASSWORD=<random-1>
-MINIO_ROOT_USER=smarttask-root
-MINIO_ROOT_PASSWORD=<random-2>
-MINIO_APP_USER=smarttask-app
-MINIO_APP_PASSWORD=<random-3>
-MINIO_BUCKET=smarttask
-
-BOOTSTRAP_ADMIN_USERNAME=
-SELF_REGISTRATION=true
-CORS_ALLOWED_ORIGINS=
-
-VITE_API_BASE=/api/v1
-VITE_ENABLE_AI=false     # bật true nếu có Ollama thật
-OLLAMA_BASE_URL=http://host.docker.internal:11434
-JAVA_OPTS=-XX:MaxRAMPercentage=60 -XX:+UseG1GC
-```
-
-Không dùng lại mật khẩu mẫu. Không commit `.env`.
-
-### 3.3 Build + chạy
-
-VPS chỉ cần Docker + Compose; backend jar và SPA đều được build trong Docker:
+Trên instance Ubuntu x86_64 thử nghiệm riêng, lấy hai digest từ cùng lần publish đã
+PASS. Dùng riêng tài khoản, volume, domain/port và dữ liệu thử nghiệm. Trên
+máy mới, quản trị viên khởi tạo bằng các image đã xác minh.
 
 ```bash
 cd /opt/smarttask/deploy
-docker compose up -d --build
-docker compose ps
+# release.images contains BACKEND_IMAGE and WEB_IMAGE, both full GHCR digests.
+dc() { docker compose --env-file .env --env-file release.images -f docker-compose.yml -f compose.release.yml "$@"; }
+dc pull
+dc up -d --no-build --pull never --wait --wait-timeout 240
+dc ps
 ```
 
-Lần đầu sẽ tải Maven/npm dependency và build image (vài phút). Các lần sau
-Docker dùng cache; khi chỉ đổi source backend, chỉ layer build lại.
-
-Lần đầu Caddy sẽ xin certificate Let's Encrypt cho `DOMAIN`. Kiểm tra:
+Với stack đang chạy, bỏ qua khởi tạo. Tạo admin đầu tiên theo mục 2.4 bằng
+Compose với image đã phát hành. Tạo hai tài khoản ACTIVE chuyên cho smoke,
+một tài khoản có quyền đọc/đính kèm vào một task riêng trong project ACTIVE,
+một tài khoản không có quyền truy cập task. Dùng hai tài khoản thường.
+Ghi `.env.smoke` quyền 0600 theo cú pháp shell, quote các giá trị bí mật.
+`BASE_URL` là URL HTTPS của instance, hoặc HTTP của môi trường thử cô lập.
 
 ```bash
-curl -fsS https://app.example.com/actuator/health
-docker compose logs --tail=100 web
+BASE_URL='https://app.example.com'
+SMOKE_USER='smoke-writer'
+SMOKE_PASSWORD='…'
+SMOKE_OUTSIDER_USER='smoke-outsider'
+SMOKE_OUTSIDER_PASSWORD='…'
+SMOKE_TASK_ID='…'
 ```
 
-Nếu DNS chưa đúng hoặc port 80/443 bị chặn, Caddy sẽ không lấy được cert.
+Chạy `(set -a; . ./.env.smoke; SMOKE_REQUIRED=1 sh ./smoke.sh)`. Smoke bắt
+buộc kiểm tra health, giao diện, đăng nhập, API, truy cập trái quyền,
+SSE ticket dùng một lần và upload/download so từng byte. Nó xóa mềm
+attachment thử. Audit và dữ liệu vòng đời file có thể vẫn tồn tại, vì vậy
+chỉ dùng task dành riêng cho kiểm tra.
 
-### 3.4 Tạo admin đầu tiên trên production
+Chạy thử cập nhật và smoke thất bại trên staging trước khi cấp key production.
+Có thể chạy kiểm thử logic cục bộ bằng `sh deploy/test-update.sh` tại gốc repo.
+Cấu hình GitHub environment production phải trỏ vào host production chỉ sau
+khi xác nhận runbook staging. Dùng key staging riêng khi chạy thử SSH.
 
-Làm giống mục 2.4:
+### 4.2 Log, backup và rollback
 
-1. `https://app.example.com/register` -> đăng ký `admin`.
-2. `deploy/.env`: `BOOTSTRAP_ADMIN_USERNAME=admin`.
-3. `docker compose up -d --force-recreate backend`.
-4. Đăng nhập, đổi mật khẩu nếu cần, duyệt user khác trong `/admin`.
+```bash
+docker compose ps -a
+docker compose logs --tail=150 db minio backend web
+sudo journalctl -u docker --since today
+```
 
-Sau khi có admin, có thể đặt `SELF_REGISTRATION=false` nếu mô hình chỉ dùng nội bộ
-(và tạo user qua API admin hoặc mở lại tạm thời để user đăng ký).
+Workflow log ghi trạng thái SSH và từng bước. Script khóa bằng `flock`,
+pull trước khi dừng dịch vụ, rồi dùng backup hiện có để quiesce các writer,
+xác minh SHA-256, đọc đầy đủ PostgreSQL dump và kiểm tra hai tarball. Log
+backup có mã thời gian UTC. Giữ backup mã hóa ngoài máy. Nếu chạy backup
+định kỳ, dùng cùng khóa (tại thư mục deploy, `flock -n .release.lock sh ./backup.sh`).
+Chỉ dọn backup và image cũ sau khi kiểm tra còn bộ đủ và image cần để rollback.
 
-### 3.5 Cloudflare (tuỳ chọn)
+Khi health hoặc smoke fail, script dừng app mới. Chỉ tự rollback nếu hash
+migration của hai image trùng nhau và Flyway history thực tế khớp bản sao
+trước deploy. Đây là kiểm tra bảo thủ, bao gồm trường hợp image legacy thiếu
+label hoặc migration thay đổi dù tương thích. Rollback thành công vẫn trả
+về lỗi để workflow giữ trạng thái FAIL. `previous.images` giữ cặp image
+liền trước lần deploy thành công. Với rollback thủ công, khóa maintenance,
+dừng web/backend, đối chiếu migration label và Flyway history với bộ backup,
+rồi chạy `dc up -d --no-deps --no-build --pull never --wait backend web` bằng
+cặp image rollback qua file env tương ứng. Chạy smoke rồi mới ghi nhận
+`release.images`. Giữ nguyên DB và object storage.
+
+### 4.3 Mất điện, Docker restart và restore có phê duyệt
+
+1. Kiểm tra `systemctl status docker`, `docker compose ps -a` và log.
+   Compose dùng `restart: unless-stopped` cho dịch vụ chính. Nếu DB hoặc
+   MinIO đang dừng sau khi backup bị ngắt, kiểm tra log và khởi động lại hạ
+   tầng bằng `docker compose start db minio`.
+2. Nếu có `.release.pending`, giữ web/backend dừng trong khi đối chiếu
+   image ID của containers, digest ứng viên, image rollback, dump và
+   Flyway history. Nếu schema tương thích và đã xác minh backup, khởi động
+   cặp image phù hợp theo mục 4.2 và chạy smoke. Chỉ xóa journal sau khi
+   hoàn tất kiểm tra và ghi cặp image thực sự đang chạy.
+3. Nếu dữ liệu hỏng hoặc schema không tương thích, ghi lại trạng thái và xin
+   phê duyệt recovery. Thử phục hồi bộ backup đã kiểm checksum trên instance
+   cô lập trước. Khi được phê duyệt, tham khảo checklist thử restore
+   trong [backup/restore](docs/09-BACKUP-RESTORE.md) và lệnh
+   `sh ./restore.sh --yes <db.dump> <minio.tgz> <files.tgz>` dưới cùng khóa
+   maintenance. Restore có thể thay thế dữ liệu hiện tại.
+
+## 5. Mạng và vận hành
+
+### 5.1 Cloudflare (tuỳ chọn)
 
 Nếu dùng Cloudflare proxy:
 
@@ -234,7 +286,7 @@ Nếu dùng Cloudflare proxy:
   cert rồi bật lại, hoặc cấu hình DNS-01 challenge trong Caddyfile.
 - Không đặt SSL mode "Flexible" vì backend/Caddy sẽ bị redirect loop.
 
-### 3.6 Tách web và API khác origin (tuỳ chọn)
+### 5.2 Tách web và API khác origin (tuỳ chọn)
 
 Mặc định web + `/api` cùng origin qua Caddy, không cần CORS. Nếu host SPA ở nơi
 khác (Vercel/Netlify) và API ở VPS:
@@ -249,147 +301,7 @@ khác (Vercel/Netlify) và API ở VPS:
 
 Nếu không cần tách, giữ nguyên cấu hình same-origin để giảm bề mặt tấn công.
 
----
-
-## 4. Vận hành
-
-### 4.1 Logs
-
-```bash
-cd /opt/smarttask/deploy
-docker compose logs -f backend
-docker compose logs -f web
-docker compose logs -f db
-docker compose logs -f minio
-```
-
-### 4.2 Update
-
-```bash
-cd /opt/smarttask
-# backup trước khi update (Flyway là forward-only)
-cd deploy && ./backup.sh
-
-# cập nhật source (git pull / rsync / copy), rồi rebuild trong Docker
-docker compose up -d --build
-docker compose ps
-SMOKE_USER=admin SMOKE_PASSWORD='...' ./smoke.sh
-```
-
-`docker compose up -d --build` build lại backend + web từ source; không cần
-Maven/JDK trên VPS. Nếu build lỗi, container cũ vẫn chạy.
-
-Hoặc dùng script có sẵn (backup + build + recreate + smoke nếu có biến môi trường):
-
-```bash
-cd /opt/smarttask/deploy
-chmod +x *.sh
-SMOKE_USER=admin SMOKE_PASSWORD='...' ./update.sh
-```
-
-Nếu image build lỗi, stack cũ vẫn chạy (compose chỉ thay container khi build
-thành công). Với thay đổi schema, luôn backup trước.
-
-### 4.3 Rollback
-
-Cách an toàn nhất: restore DB backup + chạy lại image/jar cũ.
-
-```bash
-cd /opt/smarttask/deploy
-./restore.sh --yes backups/db-<stamp>.dump backups/minio-<stamp>.tgz
-```
-
-Sau đó deploy lại phiên bản code cũ. Không rollback riêng lẻ app nếu migration
-đã chạy và schema đã đổi.
-
-### 4.4 Backup tự động
-
-```bash
-chmod +x /opt/smarttask/deploy/*.sh
-crontab -e
-```
-
-Thêm:
-
-```cron
-0 2 * * * cd /opt/smarttask/deploy && ./backup.sh >> /var/log/smarttask-backup.log 2>&1
-```
-
-Backup mặc định giữ 14 ngày trong `deploy/backups/`. Nên copy backup sang nơi
-khác (S3/rsync) vì backup cùng máy không chống được mất VPS.
-
-### 4.5 Restore
-
-```bash
-cd /opt/smarttask/deploy
-./restore.sh --yes backups/db-20261025T020000Z.dump backups/minio-20261025T020000Z.tgz
-```
-
-`restore.sh` dừng web/backend, `pg_restore --clean`, thay dữ liệu MinIO, rồi
-start lại. Đây là thao tác phá huỷ dữ liệu hiện tại; chỉ chạy khi có `--yes`.
-
-### 4.6 Smoke test
-
-```bash
-cd /opt/smarttask/deploy
-SMOKE_USER=admin SMOKE_PASSWORD='<mat-khau>' ./smoke.sh
-```
-
-Kiểm tra: health, login, đọc workspace có auth, lấy realtime ticket, mở SSE lần
-đầu 200, dùng lại ticket 401.
-
-### 4.7 Tự động kéo backup về máy local
-
-Khuyến nghị **máy local tự pull** từ VPS (máy local thường sau NAT nên VPS
-không push vào được). Trên VPS vẫn chạy `./backup.sh` theo cron ở mục 4.4.
-
-Chuẩn bị SSH key không mật khẩu cho tác vụ định kỳ:
-
-```bash
-# Trên máy local
-ssh-keygen -t ed25519 -f ~/.ssh/smarttask_backup -N ''
-# Copy nội dung ~/.ssh/smarttask_backup.pub vào VPS:
-#   ~/.ssh/authorized_keys của user dùng để scp
-```
-
-Windows (Task Scheduler, chạy hằng ngày):
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass `
-  -File C:\smarttask\deploy\pull-backups.ps1 `
-  -VpsHost 203.0.113.10 -User smarttask `
-  -KeyFile "$env:USERPROFILE\.ssh\smarttask_backup"
-```
-
-Tạo task:
-
-```powershell
-schtasks /Create /SC DAILY /ST 03:00 /TN "SmartTask pull backups" `
-  /TR "powershell -NoProfile -ExecutionPolicy Bypass -File C:\smarttask\deploy\pull-backups.ps1 -VpsHost 203.0.113.10 -User smarttask -KeyFile %USERPROFILE%\.ssh\smarttask_backup"
-```
-
-Linux/macOS (cron trên máy local):
-
-```bash
-# crontab -e
-0 3 * * * cd /path/to/smarttask/deploy && VPS_HOST=203.0.113.10 VPS_USER=smarttask SSH_KEY=$HOME/.ssh/smarttask_backup ./pull-backups.sh >> $HOME/smarttask-pull.log 2>&1
-```
-
-Kết quả nằm trong `deploy/local-backups/<timestamp>/` và giữ `KEEP_DAYS` ngày
-(mặc định 30). Đây là bản copy đầy đủ; nếu dữ liệu lớn, cân nhắc `rsync`
-hardlink hoặc đẩy lên S3/R2 rồi local sync.
-
-Lưu ý:
-- Key định kỳ nên **chỉ đọc** thư mục backup trên VPS; có thể giới hạn thêm
-  `from="<IP>"`, `no-pty`, `no-port-forwarding` trong `authorized_keys`.
-- Backup chứa dữ liệu nhạy cảm: mã hoá nếu lưu cloud, và không commit
-  `deploy/local-backups/` lên git.
-- Nếu máy local tắt vào giờ hẹn, Task Scheduler/cron có thể bỏ lần đó; backup
-  trên VPS vẫn còn 14 ngày để kéo bù.
-
----
-
-## 5. Bảo mật & vận hành production
+### 5.3 Lưu ý bảo mật
 
 - Chỉ publish 80/443. Không mở 5432/9000/9001 ra Internet.
 - Dùng mật khẩu random ≥ 32 ký tự cho Postgres/MinIO; `.env` quyền `600`.
@@ -409,12 +321,11 @@ Lưu ý:
 - Không chạy `BOOTSTRAP_ADMIN_USERNAME` với user không mong muốn; bootstrap chỉ
   nên dùng một lần cho admin đầu tiên.
 
----
 
-## 6. Giới hạn hiện tại (biết trước khi mở Internet)
+### 5.4 Giới hạn hiện tại
 
 - **AI**: cần Ollama thật (`OLLAMA_BASE_URL`). Nếu không có, build với
-  `VITE_ENABLE_AI=false` để ẩn màn AI; job AI sẽ lỗi `OLLAMA_DOWN` nếu vẫn gọi.
+  `VITE_ENABLE_AI=false` trong CI để ẩn màn AI; job AI sẽ lỗi `OLLAMA_DOWN` nếu vẫn gọi.
 - **Push/email**: FCM/APNs/SMTP chưa có credentials; thông báo trong app vẫn
   hoạt động, push/email là stub.
 - **Quên mật khẩu**: chưa có luồng reset qua email.
@@ -424,48 +335,3 @@ Lưu ý:
   dashboard và snapshot job.
 - **Load test**: chưa có bằng chứng P95/load tier 2 trên hạ tầng thật.
 - **Mobile**: không nằm trong bản web deploy này.
-
----
-
-## 7. Lệnh nhanh
-
-```bash
-# local production-like
-cd deploy
-cp .env.example .env
-# sửa .env: DOMAIN=:80, HTTP_PORT=8088, VITE_ENABLE_AI=false
-docker compose up -d --build
-docker compose ps
-
-# production
-cd deploy
-cp .env.example .env
-# sửa .env: DOMAIN=app.example.com + secrets
-docker compose up -d --build
-docker compose logs -f web
-
-# update an toàn (backup + rebuild + smoke)
-SMOKE_USER=admin SMOKE_PASSWORD='...' ./update.sh
-
-# backup / restore / smoke
-./backup.sh
-./restore.sh --yes backups/db-....dump backups/minio-....tgz
-SMOKE_USER=admin SMOKE_PASSWORD='...' ./smoke.sh
-
-# kéo backup về máy local (chạy trên máy local, không phải VPS)
-VPS_HOST=203.0.113.10 VPS_USER=smarttask ./pull-backups.sh
-```
-
----
-
-## 8. Deploy hộ?
-
-Để deploy thực tế lên Internet, cần thêm thông tin không có trong repo:
-
-- IP/SSH của VPS (hoặc tài khoản PaaS),
-- domain đã trỏ DNS,
-- cách cấp quyền (SSH key / panel).
-
-Không nên gửi mật khẩu production vào chat. Có thể cung cấp VPS + domain và
-dùng SSH key tạm; khi có các thông tin đó mới chạy được bước `docker compose up`
-trên server thật.
