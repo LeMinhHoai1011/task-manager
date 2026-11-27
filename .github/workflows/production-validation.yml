@@ -185,7 +185,7 @@ jobs:
           done
 
   deploy:
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.deploy
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     needs: [release-gate, publish]
     runs-on: ubuntu-latest
     timeout-minutes: 45
