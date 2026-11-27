@@ -3,7 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { apiFetch, mutationOpts, newIdempotencyKey, unwrapData, unwrapPage } from "../api/client";
 import { t } from "../i18n";
 import { useRealtimeEvent } from "../realtime/RealtimeContext";
-import { Button, Card, EmptyState, ErrorAlert, Spinner, TextInput } from "../components/ui";
+import { Button, Card, ErrorAlert, Spinner, TextInput } from "../components/ui";
 import {useAccess,roleLabel} from "../auth/AccessContext";
 import SearchSelect from "../components/SearchSelect";
 import {statusLabel} from "../i18n/labels";
@@ -199,8 +199,28 @@ export default function Projects() {
           <Spinner />
         </div>
       ) : items.length === 0 ? (
-        <div className="mt-4">
-          <EmptyState title="Không tìm thấy dự án" description="Tạo dự án mới để bắt đầu quản lý công việc." />
+        <div className="mt-6 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-8 text-center">
+          <AppIcon name="project" size={40} className="mx-auto text-slate-300 dark:text-slate-600 mb-4" />
+          <h2 className="text-lg font-bold text-slate-800 dark:text-white">Chưa có dự án nào</h2>
+          <p className="text-sm text-slate-500 mt-1 max-w-md mx-auto">Tạo dự án đầu tiên để bắt đầu quản lý công việc của nhóm.</p>
+          <div className="mt-6 max-w-sm mx-auto text-left space-y-3">
+            {[
+              { step: "1", title: "Chọn không gian làm việc", desc: "Mỗi dự án thuộc về một không gian làm việc (workspace) — nơi tổ chức nhóm và quyền truy cập." },
+              { step: "2", title: "Đặt tên dự án", desc: "Tên ngắn gọn, dễ nhận biết giúp cả nhóm nhanh chóng tìm thấy dự án." },
+              { step: "3", title: "Kích hoạt dự án", desc: "Dự án mới ở trạng thái \"Lập kế hoạch\". Kích hoạt khi sẵn sàng để tạo công việc." },
+            ].map((s) => (
+              <div key={s.step} className="flex gap-3 items-start">
+                <span className="shrink-0 w-7 h-7 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 flex items-center justify-center text-xs font-bold">{s.step}</span>
+                <div>
+                  <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{s.title}</p>
+                  <p className="text-xs text-slate-500 mt-0.5">{s.desc}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+          {canCreate && <Button variant="primary" className="mt-6" onClick={() => { setCreateOpen(true); setFormErr(null); }}>
+            <AppIcon name="plus" size={15} /> Tạo dự án đầu tiên
+          </Button>}
         </div>
       ) : viewMode === "card" ? (
         /* CARD VIEW */
@@ -360,15 +380,21 @@ export default function Projects() {
         >
           <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-xl">
             <h2 className="text-base font-bold text-slate-900 dark:text-white">{t("projects.create_title")}</h2>
+            <p className="text-xs text-slate-500 mt-1">Dự án mới sẽ ở trạng thái "Lập kế hoạch". Sau khi tạo, bạn có thể thêm thành viên và kích hoạt để bắt đầu giao việc.</p>
             <div className="mt-3 flex flex-col gap-2.5">
-              <TextInput
-                aria-label={t("projects.name")}
-                placeholder={t("projects.name")}
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                className="text-xs"
-              />
-              <SearchSelect required label="Không gian tạo dự án" value={newWs} onChange={setNewWs} options={workspaces.filter(w=>access.workspaces.some(a=>a.id===w.id&&a.canCreateProject)).map(w=>({id:w.id,name:w.name}))}/>
+              <div>
+                <TextInput
+                  aria-label={t("projects.name")}
+                  placeholder={t("projects.name")}
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  className="text-xs"
+                />
+              </div>
+              <div>
+                <SearchSelect required label="Không gian tạo dự án" value={newWs} onChange={setNewWs} options={workspaces.filter(w=>access.workspaces.some(a=>a.id===w.id&&a.canCreateProject)).map(w=>({id:w.id,name:w.name}))}/>
+                <p className="text-[11px] text-slate-400 mt-1">Không gian làm việc quản lý nhóm thành viên và quyền truy cập chung cho các dự án bên trong.</p>
+              </div>
             </div>
             <ErrorAlert message={formErr} />
             <div className="mt-4 flex justify-end gap-2">

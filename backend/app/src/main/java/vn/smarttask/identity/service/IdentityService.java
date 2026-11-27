@@ -105,6 +105,7 @@ public class IdentityService {
       audit.appendDenied(null, "auth.register", "app_user", null, "SELF_REG_DISABLED");
       throw AppException.forbidden("Self registration disabled");
     }
+    validateTemporaryPassword(password);
     if (users.findByUsernameIgnoreCase(username).isPresent()
         || users.findByEmailIgnoreCase(email).isPresent()) {
       audit.appendDenied(null, "auth.register", "app_user", null, "DUPLICATE");

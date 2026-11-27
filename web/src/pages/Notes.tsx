@@ -410,8 +410,16 @@ export default function Notes() {
             {loading ? (
               <div className="p-6 text-center text-xs text-slate-400">Đang tải ghi chú...</div>
             ) : filteredNotes.length === 0 ? (
-              <div className="p-6 text-center text-xs text-slate-400">
-                Không tìm thấy ghi chú nào phù hợp
+              <div className="p-6 text-center">
+                <AppIcon name="files" size={32} className="mx-auto text-slate-300 dark:text-slate-600 mb-2" />
+                {notes.length === 0 ? (
+                  <>
+                    <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">Chưa có ghi chú nào</p>
+                    <p className="text-xs text-slate-500 mt-1">Bấm "Tạo ghi chú mới" để bắt đầu. Ghi chú cá nhân chỉ bạn thấy, ghi chú dự án chia sẻ với nhóm.</p>
+                  </>
+                ) : (
+                  <p className="text-xs text-slate-400">Không tìm thấy ghi chú nào phù hợp với bộ lọc</p>
+                )}
               </div>
             ) : (
               filteredNotes.map((note) => {
@@ -637,11 +645,27 @@ export default function Notes() {
             <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-slate-400">
               <AppIcon name="files" size={48} className="text-slate-300 dark:text-slate-700 mb-3" />
               <p className="text-base font-medium text-slate-700 dark:text-slate-300">
-                Chọn hoặc tạo ghi chú mới
+                {notes.length === 0 ? "Tạo ghi chú đầu tiên" : "Chọn một ghi chú"}
               </p>
               <p className="text-xs text-slate-500 max-w-xs mt-1">
-                Tất cả ghi chú được lưu an toàn theo phân quyền và hỗ trợ định dạng Markdown đầy đủ.
+                {notes.length === 0
+                  ? "Ghi chú hỗ trợ Markdown — dùng để lưu ý tưởng, danh sách công việc hoặc ghi nhớ cho dự án."
+                  : "Chọn ghi chú bên trái để xem và chỉnh sửa nội dung."}
               </p>
+              {notes.length === 0 && (
+                <div className="mt-5 max-w-xs text-left space-y-2">
+                  {[
+                    { icon: "user" as const, text: "Ghi chú cá nhân — chỉ bạn thấy" },
+                    { icon: "workspace" as const, text: "Ghi chú dự án — chia sẻ với thành viên dự án" },
+                    { icon: "files" as const, text: "Ghi chú chung — chia sẻ trong không gian làm việc" },
+                  ].map((item) => (
+                    <div key={item.text} className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
+                      <AppIcon name={item.icon} size={14} className="shrink-0 text-slate-400" />
+                      <span>{item.text}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

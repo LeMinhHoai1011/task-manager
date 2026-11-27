@@ -71,4 +71,5 @@ public class AuditEvent {
   public void setAfterJson(String v) { this.afterJson = v; }
   public void setScopeType(String v) { this.scopeType = v; }
   public void setScopeId(UUID v) { this.scopeId = v; }
+  public OffsetDateTime getCreatedAt() { return createdAt; }
 }

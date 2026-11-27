@@ -67,7 +67,7 @@ public class ProjectController {
   }
 
   private static ProjectDto toDto(vn.smarttask.project.entity.Project p) {
-    return new ProjectDto(p.getId(), p.getWorkspaceId(), p.getName(), p.getStatus(), null);
+    return new ProjectDto(p.getId(), p.getWorkspaceId(), p.getName(), p.getStatus(), p.getCreatedAt());
   }
 
   @GetMapping("/projects")
@@ -111,14 +111,21 @@ public class ProjectController {
   public ResponseEntity<ApiResult<ProjectDto>> createProject(
       @RequestBody Map<String, Object> body) {
     UUID actor = CurrentActor.userId();
-    UUID wsId = UUID.fromString(String.valueOf(body.get("workspace_id")));
+    Object rawWs = body.get("workspace_id");
+    if (rawWs == null || rawWs.toString().isBlank()) {
+      throw AppException.badRequest("WORKSPACE_REQUIRED", "workspace_id is required");
+    }
+    UUID wsId;
+    try {
+      wsId = UUID.fromString(rawWs.toString());
+    } catch (IllegalArgumentException e) {
+      throw AppException.badRequest("WORKSPACE_INVALID", "workspace_id is not a valid UUID");
+    }
     policy.requireWorkspaceManagement(actor, wsId);
     var p = projects.create(actor, wsId,
         String.valueOf(body.getOrDefault("name", "p")),
         body.get("description") == null ? null : String.valueOf(body.get("description")));
-    return ResponseEntity.ok(ApiResult.ok(
-        new ProjectDto(p.getId(), p.getWorkspaceId(), p.getName(), p.getStatus(), null),
-        "project.create.success"));
+    return ResponseEntity.ok(ApiResult.ok(toDto(p), "project.create.success"));
   }
 
   @GetMapping("/projects/{id}")
@@ -127,9 +134,7 @@ public class ProjectController {
     UUID actor = CurrentActor.userId();
     policy.requireProjectRead(actor, id);
     var p = projects.get(actor, id);
-    return ResponseEntity.ok(ApiResult.ok(
-        new ProjectDto(p.getId(), p.getWorkspaceId(), p.getName(), p.getStatus(), null),
-        "project.get.success"));
+    return ResponseEntity.ok(ApiResult.ok(toDto(p), "project.get.success"));
   }
 
   @PatchMapping("/projects/{id}")

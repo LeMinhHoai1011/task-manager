@@ -71,4 +71,5 @@ public class Project {
   public void setDeletedAt(OffsetDateTime v) { this.deletedAt = v; }
   public UUID getDeletedBy() { return deletedBy; }
   public void setDeletedBy(UUID v) { this.deletedBy = v; }
+  public OffsetDateTime getCreatedAt() { return createdAt; }
 }

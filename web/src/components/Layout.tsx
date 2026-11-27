@@ -304,7 +304,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                 className="flex items-center gap-2 p-1 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition"
                 aria-label="Tài khoản cá nhân"
               >
-                <span className="avatar !h-8 !w-8 text-xs font-bold">
+                <span className="avatar !h-8 !w-8 text-xs font-bold" title={auth.user?.email ?? ""}>
                   {(auth.user?.email ?? "U").slice(0, 1).toUpperCase()}
                 </span>
               </button>
@@ -318,8 +318,8 @@ export default function Layout({ children }: { children: ReactNode }) {
                     <p className="font-semibold text-slate-900 dark:text-white truncate">
                       {auth.user?.email ?? "Tài khoản"}
                     </p>
-                    <p className="text-[11px] text-slate-400 capitalize">
-                      Vai trò: {profile.label}
+                    <p className="text-[11px] text-slate-400">
+                      {profile.label}
                     </p>
                   </div>
 

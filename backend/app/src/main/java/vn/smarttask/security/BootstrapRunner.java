@@ -84,6 +84,7 @@ public class BootstrapRunner implements ApplicationRunner {
       return;
     }
     grantService.grantBootstrap(user.getId(), GrantService.SYSTEM_ADMIN);
+    grantService.grantBootstrap(user.getId(), "ACCOUNT_APPROVE_GLOBAL");
     if (!user.isActive() || !"ACTIVE".equals(user.getStatus())) {
       if (identity != null) {
         identity.activateBootstrapAdmin(user.getId());
