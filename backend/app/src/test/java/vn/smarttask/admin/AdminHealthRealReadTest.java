@@ -23,6 +23,7 @@ import vn.smarttask.common.entity.AuditEvent;
 import vn.smarttask.common.entity.BackgroundJob;
 import vn.smarttask.common.repo.AuditEventRepository;
 import vn.smarttask.common.repo.BackgroundJobRepository;
+import vn.smarttask.identity.repo.AppUserRepository;
 import vn.smarttask.security.GrantService;
 import vn.smarttask.security.Principal;
 
@@ -38,6 +39,7 @@ class AdminHealthRealReadTest {
   @Mock BackgroundJobRepository jobs;
   @Mock SystemSettingRepository settings;
   @Mock GrantService grants;
+  @Mock AppUserRepository users;
   @Mock DataSource dataSource;
 
   private AdminController admin;
@@ -45,7 +47,7 @@ class AdminHealthRealReadTest {
 
   @BeforeEach
   void setUp() {
-    admin = new AdminController(audits, jobs, settings, grants);
+    admin = new AdminController(audits, jobs, settings, grants, users);
     SecurityContextHolder.getContext().setAuthentication(
         new UsernamePasswordAuthenticationToken(new Principal(actor, UUID.randomUUID()), null,
             List.of()));
