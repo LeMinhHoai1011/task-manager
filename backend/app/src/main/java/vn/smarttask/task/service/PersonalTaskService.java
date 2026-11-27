@@ -133,7 +133,9 @@ public class PersonalTaskService {
                 .and(Sort.by("id"))));
   }
   public record Edit(String title, String description, String notes, String priority,
-      OffsetDateTime startAt, OffsetDateTime dueAt, Boolean dueIsDateOnly, String dueTimezone) {
+      OffsetDateTime startAt,
+      @com.fasterxml.jackson.annotation.JsonFormat(without = com.fasterxml.jackson.annotation.JsonFormat.Feature.ADJUST_DATES_TO_CONTEXT_TIME_ZONE)
+      OffsetDateTime dueAt, Boolean dueIsDateOnly, String dueTimezone) {
     public Edit(String title, String description, String notes, String priority, OffsetDateTime startAt, OffsetDateTime dueAt) {
       this(title, description, notes, priority, startAt, dueAt, false, "UTC");
     }

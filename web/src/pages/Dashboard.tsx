@@ -9,6 +9,7 @@ import { Card, EmptyState, ErrorAlert, Skeleton, StatusBadge } from "../componen
 import { useRealtimeEvent } from "../realtime/RealtimeContext";
 import ScopeFilters from "../components/ScopeFilters";
 import AppIcon from "../components/AppIcon";
+import TodayTasks from "../components/TodayTasks";
 
 type TaskSummary = {
   id: string;
@@ -478,12 +479,13 @@ export default function Dashboard() {
       <section className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
         {/* Left Column: Việc cần chú ý (Focus / Today's tasks) */}
         <div className="space-y-6">
+          <TodayTasks />
           <Card className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
               <div>
                 <h2 className="section-title text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                   <AppIcon name="tasks" size={18} className="text-blue-600" />
-                  <span>Việc cần làm hôm nay & chú ý</span>
+                  <span>Việc cần chú ý theo bộ lọc</span>
                 </h2>
                 <p className="mt-0.5 text-xs text-slate-500">
                   Ưu tiên công việc đến hạn hoặc quá hạn cần giải quyết.
@@ -503,8 +505,7 @@ export default function Dashboard() {
             ) : focus.length === 0 ? (
               <div className="mt-4">
                 <EmptyState
-                  title="Bạn chưa có công việc cần xử lý hôm nay"
-                  description="Các công việc được giao hoặc tạo mới sẽ xuất hiện tại đây."
+                  title="Không có công việc cần chú ý trong phạm vi này"
                 />
               </div>
             ) : (
@@ -516,7 +517,7 @@ export default function Dashboard() {
                   >
                     <div className="min-w-0 flex-1">
                       <Link
-                        to={task.scope === "PERSONAL" ? "/my-tasks" : `/tasks/${task.id}`}
+                        to={task.scope === "PERSONAL" ? `/my-tasks/${task.id}` : `/tasks/${task.id}`}
                         className="block truncate font-semibold text-sm text-slate-900 dark:text-white hover:text-blue-600"
                       >
                         {task.title}

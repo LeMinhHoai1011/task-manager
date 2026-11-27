@@ -10,6 +10,7 @@ import {useAccess,roleLabel} from "../auth/AccessContext";
 import ProjectChat from "../chat/ProjectChat";
 import {useRealtimeEvent} from "../realtime/RealtimeContext";
 import {useAuth} from "../auth/AuthContext";
+import ProjectAttention from "../components/ProjectAttention";
 
 interface ProgressLogItem {
   id: string;
@@ -315,7 +316,7 @@ export default function ProjectDetail() {
           {[
             { id: "overview", label: "1. Tổng quan", icon: "overview" },
             { id: "tasks", label: `2. Công việc (${totalTasks})`, icon: "tasks" },
-            { id: "chat", label: `Trao đổi${chatUnread?` · ${chatUnread}`:""}`, icon: "message-square" },
+            { id: "chat", label: "Trò chuyện", icon: "message-square" },
             { id: "notes", label: `3. Ghi chú (${notes.length})`, icon: "files" },
             { id: "progress", label: `4. Tiến độ (${progressLogs.length})`, icon: "report" },
             { id: "members", label: `5. Thành viên (${members.length})`, icon: "team" },
@@ -324,7 +325,7 @@ export default function ProjectDetail() {
           ].filter(tab=>(tab.id!=="settings"||canManage)&&(tab.id!=="chat"||canChat)).map((tab) => (
             <button
               key={tab.id}
-              onClick={() => handleTabChange(tab.id as any)}
+              onClick={() => tab.id === "chat" ? navigate(`/projects/${id}/chat`) : handleTabChange(tab.id as any)}
               className={`flex items-center gap-2 px-4 py-3 text-sm font-semibold border-b-2 transition-colors ${
                 activeTab === tab.id
                   ? "border-primary text-primary"
@@ -333,12 +334,13 @@ export default function ProjectDetail() {
             >
               <AppIcon name={tab.icon} size={16} />
               <span>{tab.label}</span>
+              {tab.id === "chat" && chatUnread > 0 && <span className="chat-unread-badge" aria-label={`${chatUnread} tin chưa đọc`}>{chatUnread > 99 ? "99+" : chatUnread}</span>}
             </button>
           ))}
         </nav>
       </div>
 
-      {activeTab==="chat"&&(canChat?<ProjectChat key={`${chatUser}:${id}`} projectId={String(id)} onUnread={setChatUnread}/>:<p role="alert" className="card">Bạn chưa có quyền xem trao đổi chung của dự án.</p>)}
+      {activeTab==="chat"&&(canChat?<ProjectChat key={`${chatUser}:${id}`} projectId={String(id)} projectName={project?.name} onUnread={setChatUnread}/>:<p role="alert" className="card">Bạn chưa có quyền xem trao đổi chung của dự án.</p>)}
 
       {/* TAB 1: TỔNG QUAN */}
       {activeTab === "overview" && (
@@ -363,6 +365,8 @@ export default function ProjectDetail() {
               <div className="text-2xl font-bold text-rose-600 mt-1">{overdueTasks}</div>
             </div>
           </div>
+
+          {id && canManage && <ProjectAttention key={id} projectId={id} />}
 
           {/* Quick tasks highlight */}
           <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5">

@@ -21,3 +21,25 @@ test("uses the server submit result and cannot skip approval",async()=>{
   await waitFor(()=>expect(screen.getByLabelText("Chuyển trạng thái Board task")).toHaveValue("PENDING_APPROVAL"));
   expect(request).toHaveBeenCalledWith("/tasks/task1/workflow/submit",expect.objectContaining({method:"POST",ifMatch:"7"}));
 });
+test("reloads a conflicting card and uses its current version", async () => {
+  const task = { id: "task1", title: "Board task", state: "TODO", version: 7 };
+  let attempts = 0;
+  request.mockImplementation(async (path: string, options: { method?: string } = {}) => {
+    if (options.method === "POST") {
+      if (++attempts === 1) throw { status: 409, code: "VERSION_CONFLICT" };
+      return { data: { to_state: "PENDING_APPROVAL", version: 9 } };
+    }
+    if (path === "/tasks/task1") {
+      return { data: { ...task, state: "IN_PROGRESS", version: 8 } };
+    }
+    return { data: { items: [task] } };
+  });
+  fireEvent.change(await board(), { target: { value: "IN_PROGRESS" } });
+  await screen.findByText("Công việc đã thay đổi. Bảng đã cập nhật trạng thái mới nhất.");
+  const select = screen.getByLabelText("Chuyển trạng thái Board task");
+  expect(select).toHaveValue("IN_PROGRESS");
+  fireEvent.change(select, { target: { value: "PENDING_APPROVAL" } });
+  await waitFor(() => expect(request).toHaveBeenCalledWith(
+    "/tasks/task1/workflow/submit", expect.objectContaining({ ifMatch: "8" })
+  ));
+});

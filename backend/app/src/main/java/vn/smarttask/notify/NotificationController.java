@@ -18,6 +18,8 @@ public class NotificationController {
   private final NotificationService notifications;
   private final vn.smarttask.notify.repo.NotificationRepository repository;
   private final vn.smarttask.security.PolicyEnforcer policy;
+  @org.springframework.beans.factory.annotation.Autowired
+  private vn.smarttask.project.service.ProjectChatService chat;
 
   public NotificationController(NotificationService notifications, vn.smarttask.notify.repo.NotificationRepository repository, vn.smarttask.security.PolicyEnforcer policy) {
     this.notifications = notifications;
@@ -29,6 +31,11 @@ public class NotificationController {
     var notification=repository.findById(id).filter(n->actor.equals(n.getUserId()) && !n.isRedacted())
         .orElseThrow(()->vn.smarttask.common.AppException.notFound("Notification not found"));
     String link=notification.getDeepLink();
+    if("CHAT_MENTION".equals(notification.getKind())&&"PROJECT".equals(notification.getScopeType())
+        && notification.getScopeId()!=null && ("/projects/"+notification.getScopeId()+"/chat").equals(link)) {
+      chat.access(actor,notification.getScopeId());
+      return ApiResult.ok(Map.of("path",link),"notification.target.success");
+    }
     if("PERSONAL".equals(notification.getScopeType())&&"/my-tasks".equals(link)&&notification.getScopeId()!=null) {
       return ApiResult.ok(Map.of("path","/my-tasks"),"notification.target.success");
     }

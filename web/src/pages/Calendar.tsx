@@ -6,12 +6,11 @@ import {useSearchParams} from "react-router-dom";
 import ScopeFilters from "../components/ScopeFilters";
 import { apiFetch, mutationOpts, newIdempotencyKey, unwrapData, unwrapList, unwrapPage } from "../api/client";
 import { t } from "../i18n";
-import { Badge, Button, EmptyState, ErrorAlert, Spinner, TextInput } from "../components/ui";
+import { useAccess } from "../auth/AccessContext";
+import { Badge, Button, EmptyState, ErrorAlert, Spinner, TextInput, stateLabel } from "../components/ui";
 function localDay(d: Date) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }
 function dateOf(day: string) { return new Date(`${day}T12:00:00`); }
 const ruleLabels: Record<string, string> = { ACTIVE: "Đang chờ", PAUSED: "Tạm dừng", FIRED: "Đã xử lý", CANCELLED: "Đã hủy" };
-// Backend GET /calendar trả { data: [{ task_id, project_id, due_at }] } —
-// không có title/tz riêng; web render đúng field thật, không bịa.
 interface CalItem {
     scope?: string;
     due_is_date_only?: boolean;
@@ -22,6 +21,7 @@ interface CalItem {
     title?: string;
     deadline?: string | null;
     tz?: string;
+    state?: string;
 }
 interface TaskOption {
     id: string;
@@ -30,6 +30,7 @@ interface TaskOption {
     scope?:string;
 }
 export default function Calendar() {
+    const {projects}=useAccess();
     const [mode, setMode] = useState<"day" | "week" | "month" | "unscheduled">("month");
     const [selectedDay, setSelectedDay] = useState(() => localDay(new Date()));
     const [personal, setPersonal] = useState(()=>!new URLSearchParams(window.location.search).get("taskId")), [title, setTitle] = useState(""), [description, setDescription] = useState(""), [dueAt, setDueAt] = useState("");
@@ -208,9 +209,13 @@ export default function Calendar() {
         const day=item.due_is_date_only?(item.due_date_only??["year","month","day"].map(type=>parts.find(part=>part.type===type)?.value).join("-")):localDay(due);
         grouped.set(day, [...(grouped.get(day) ?? []), item]);
     }
-    const visible = mode === "unscheduled" ? unscheduled : mode === "day" ? dated : grouped.get(selectedDay) ?? [];
+    const agendaDay = mode === "day" ? anchor : selectedDay;
+    const visible = mode === "unscheduled" ? unscheduled : [...(grouped.get(agendaDay) ?? [])]
+        .sort((a, b) => Number(!!b.due_is_date_only) - Number(!!a.due_is_date_only));
+    const agendaDate = dateOf(agendaDay).toLocaleDateString("vi-VN", { dateStyle: "full" });
+    const clock = new Intl.DateTimeFormat("vi-VN", { timeZone: tz, hour: "2-digit", minute: "2-digit" });
     return <div className="workspace-page calendar-workspace">
-    <header className="workspace-heading"><div><p className="eyebrow">THỜI GIAN CỦA BẠN</p><h1>Lịch & nhắc hẹn</h1><p>Xem thời hạn, lưu lịch hẹn và chủ động nhắc việc.</p></div><a className="btn btn-primary" href="#new-reminder">+ Tạo lịch hẹn</a></header>
+    <header className="workspace-heading"><div><h1>Lịch & nhắc hẹn</h1><p>Lịch trình gồm lịch hẹn, hạn công việc và lời nhắc của bạn.</p></div><a className="btn btn-primary" href="#new-reminder">+ Tạo lịch hẹn</a></header>
     <div className="calendar-toolbar"><div className="flex flex-wrap items-center gap-2"><Button variant="secondary" aria-label="Kỳ trước" onClick={() => move(-1)}>←</Button><Button variant="secondary" onClick={() => { const d = localDay(new Date()); setAnchor(d); setSelectedDay(d); setPage(0); }}>Hôm nay</Button><Button variant="secondary" aria-label="Kỳ sau" onClick={() => move(1)}>→</Button><input className="input !w-auto" aria-label="Ngày xem" type="date" value={anchor} onChange={e => { if (e.target.value) {
         setAnchor(e.target.value);
         setSelectedDay(e.target.value);
@@ -219,7 +224,23 @@ export default function Calendar() {
     <ScopeFilters scope={scope} projectId={projectId} teamId={teamId} onChange={(s, p, t) => { setScope(s); setProjectId(p); setTeamId(t); setPage(0); }}/>
     <ErrorAlert message={err}/><div className="calendar-layout"><section className="work-panel !p-0 overflow-hidden"><div className="calendar-section-heading"><div><h2>{month.toLocaleDateString("vi-VN", { month: "long", year: "numeric" })}</h2><p className="text-xs text-slate-500">Múi giờ {tz} · {items.length} công việc trong trang này</p></div>{loading && <Spinner />}</div>
     {(mode === "month" || mode === "week") && <><div className="calendar-weekdays">{["T2", "T3", "T4", "T5", "T6", "T7", "CN"].map(d => <span key={d}>{d}</span>)}</div><div className="calendar-grid">{cells.map((day, index) => day ? <button className={`calendar-cell ${day === selectedDay ? 'is-selected' : ''} ${day === localDay(new Date()) ? 'is-today' : ''}`} key={day} aria-label={`Xem ngày ${day}`} aria-pressed={day === selectedDay} onClick={() => setSelectedDay(day)}><span className="calendar-date">{dateOf(day).getDate()}</span>{(grouped.get(day) ?? []).slice(0, 2).map(item => <span className="calendar-event" key={item.task_id}>{item.title ?? "Công việc"}</span>)}{(grouped.get(day)?.length ?? 0) > 2 && <span className="text-xs text-slate-500">+ thêm</span>}</button> : <div className="calendar-cell calendar-blank" key={index}/>)}</div></>}
-    <div className="agenda"><h3>{mode === "unscheduled" ? "Chưa có thời hạn" : `Lịch ngày ${dateOf(mode === "day" ? anchor : selectedDay).toLocaleDateString("vi-VN")}`}</h3>{!loading && !visible.length && <EmptyState title="Chưa có công việc trong mục này"/>}{visible.map(item => <Link className="agenda-row" key={item.task_id} to={item.scope === "PERSONAL" ? "/my-tasks" : `/tasks/${item.task_id}`}><span className="agenda-time">{dueOf(item) ? item.due_is_date_only ? "Cả ngày" : new Date(dueOf(item)!).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }) : "—"}</span><span><strong>{item.title ?? "Công việc"}</strong><span className="block text-xs text-slate-500">{item.scope === "PERSONAL" ? "Cá nhân" : "Dự án / nhóm"}</span></span><span className="ml-auto" aria-hidden="true">↗</span></Link>)}</div><footer className="directory-toolbar"><Button variant="secondary" disabled={loading || !page} onClick={() => setPage(n => n - 1)}>Trang trước</Button><span className="text-xs text-slate-500">Trang {page + 1} · tối đa 200 việc</span><Button variant="secondary" disabled={loading || items.length < 200} onClick={() => setPage(n => n + 1)}>Trang sau</Button></footer></section>
+    <div className="agenda">
+      <h3>{mode === "unscheduled" ? "Chưa có thời hạn" : agendaDate}</h3>
+      {!loading && !err && !visible.length && <EmptyState title="Chưa có lịch trình trong mục này"/>}
+      {visible.map(item => {
+        const due = dueOf(item);
+        const projectName = projects.find(project => project.id === item.project_id)?.name;
+        return <Link className="agenda-row" key={item.task_id} to={item.scope === "PERSONAL" ? `/my-tasks/${item.task_id}` : `/tasks/${item.task_id}`}>
+          <span className="agenda-time">{due ? item.due_is_date_only ? "Cả ngày" : <time dateTime={due}>{clock.format(new Date(due))}</time> : "—"}</span>
+          <span className="min-w-0 flex-1 break-words">
+            <strong>{item.title ?? "Công việc"}</strong>
+            <span className="block text-xs text-slate-500">{item.scope === "PERSONAL" ? "Cá nhân" : projectName ?? "Dự án / nhóm"}</span>
+          </span>
+          {item.state && <Badge state={item.state}>{stateLabel(item.state)}</Badge>}
+        </Link>;
+      })}
+    </div>
+    <footer className="directory-toolbar"><Button variant="secondary" disabled={loading || !page} onClick={() => setPage(n => n - 1)}>Trang trước</Button><span className="text-xs text-slate-500">Trang {page + 1} · tối đa 200 việc</span><Button variant="secondary" disabled={loading || items.length < 200} onClick={() => setPage(n => n + 1)}>Trang sau</Button></footer></section>
     <aside className="work-panel self-start" id="new-reminder"><p className="eyebrow">THÊM VÀO LỊCH</p><h2>Lưu một lời nhắc</h2><div className="workspace-tabs"><button aria-current={personal ? "page" : undefined} onClick={() => setPersonal(true)}>Hẹn cá nhân</button><button aria-current={!personal ? "page" : undefined} onClick={() => setPersonal(false)}>Nhắc công việc</button></div><form className="space-y-4" onSubmit={e => { e.preventDefault(); void createReminder(); }}>{personal ? <><label>Tiêu đề<TextInput required maxLength={200} placeholder="Ví dụ: Hẹn trao đổi với khách hàng" value={title} onChange={e => setTitle(e.target.value)}/></label><label>Nội dung cần nhớ<textarea className="input min-h-24" maxLength={10000} placeholder="Địa điểm, nội dung chuẩn bị…" value={description} onChange={e => setDescription(e.target.value)}/></label><label>Thời điểm hẹn<TextInput required type="datetime-local" value={dueAt} onChange={e => setDueAt(e.target.value)}/></label></> : <SearchSelect required label="Công việc cần nhắc" value={remTask} onChange={setRemTask} options={tasks.map(task=>({id:task.id,name:task.title,detail:task.scope==="PERSONAL"?"Việc cá nhân":"Công việc dự án"}))} loading={optionsBusy} onMore={projectTaskCursor||personalTaskMore?()=>void moreTaskOptions():undefined}/>}<label>Thời điểm nhắc<TextInput required type="datetime-local" value={remAt} onChange={e => setRemAt(e.target.value)}/></label><p className="text-xs text-slate-500">Giờ {tz}. Lưu vào tài khoản và nhắc qua thông báo trong ứng dụng. Giờ yên lặng có thể trì hoãn thông báo.</p><Button className="w-full" disabled={busy}>{busy ? "Đang lưu…" : personal ? "Lưu lịch hẹn & nhắc" : "Lưu nhắc việc"}</Button></form><Link className="mt-4 block text-xs text-primary" to="/settings">Cài đặt thông báo và giờ yên lặng →</Link></aside></div>
     {remMsg && <p role="status" className="notice">{remMsg}</p>}
     <section className="work-panel"><div className="flex items-start justify-between gap-3"><div><p className="eyebrow">ĐÃ LƯU TRONG TÀI KHOẢN</p><h2>Nhắc việc của bạn</h2></div><Button variant="secondary" disabled={busy} onClick={() => setRefresh(n => n + 1)}>Tải lại</Button></div>{!reminders.length && <EmptyState title="Chưa có nhắc việc"/>}{reminders.map(rule => { const terminal = ["FIRED", "CANCELLED"].includes(rule.status); return <article className="reminder-row" key={rule.id}><div className="min-w-0 flex-1"><strong className="break-words">{rule.available===false?"Công việc không còn khả dụng":rule.title ?? tasks.find(task => task.id === rule.task_id)?.title ?? "Công việc"}</strong><p className="text-sm text-slate-500">{new Date(rule.remind_at).toLocaleString("vi-VN")} · {tz}</p></div><Badge tone={rule.status === "ACTIVE" ? "badge-in-progress" : "badge-todo"}>{ruleLabels[rule.status] ?? rule.status}</Badge>{!terminal && rule.available !== false && <div className="flex flex-wrap gap-2"><Button size="sm" variant="secondary" disabled={busy} onClick={() => { setEditing(rule.id); const d = new Date(rule.remind_at); setEditAt(`${localDay(d)}T${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`); }}>Đổi giờ</Button><Button size="sm" variant="ghost" disabled={busy} onClick={() => void changeReminder(rule.id, rule.status === "PAUSED" ? "resume" : "pause")}>{rule.status === "PAUSED" ? "Tiếp tục" : "Tạm dừng"}</Button><Button size="sm" variant="ghost" disabled={busy} onClick={() => void changeReminder(rule.id, "cancel")}>Hủy nhắc</Button></div>}{editing === rule.id && <form className="flex w-full flex-wrap gap-2" onSubmit={e => { e.preventDefault(); void changeReminder(rule.id, "edit"); }}><input className="input !w-auto" aria-label="Thời điểm nhắc mới" type="datetime-local" required value={editAt} onChange={e => setEditAt(e.target.value)}/><Button disabled={busy}>Lưu giờ nhắc</Button><Button variant="secondary" type="button" onClick={() => setEditing("")}>Đóng</Button></form>}</article>; })}{reminderMore && <Button variant="secondary" onClick={() => void loadReminders(reminderPage + 1).catch(() => setRemMsg("Không tải được nhắc việc"))}>Tải thêm nhắc việc</Button>}</section>

@@ -30,6 +30,64 @@ class ProjectChatIT extends ItgBase {
   private Send message(String body) {return new Send(UUID.randomUUID(),body,null);}
   private void hidden(Runnable action) {assertEquals(404,assertThrows(AppException.class,action::run).getHttpStatus().value());}
 
+  @Test void repliesSearchPinsMentionsAndUnreadKeepProjectScope() throws Exception {
+    var r=room();var other=room();
+    var manager=r.manager().getId();var member=r.member().getId();var project=r.project();
+    var original=chat.send(manager,project,message("Quyết định 100% @"+r.member().getUsername()+" @"+r.member().getUsername()));
+    var response=chat.send(member,project,new Send(UUID.randomUUID(),"Đồng ý",null,original.id()));
+    assertEquals(original.id(),response.replyTo().id());
+    assertEquals(original.body(),response.replyTo().body());
+    assertTrue(chat.search(member,project,"100%",null).stream().anyMatch(row->row.id().equals(original.id())));
+    assertTrue(chat.search(member,project,"_",null).stream().noneMatch(row->row.id().equals(response.id())));
+    hidden(()->chat.send(other.manager().getId(),other.project(),new Send(UUID.randomUUID(),"Ngoài phòng",null,original.id())));
+    hidden(()->chat.search(other.manager().getId(),project,"Quyết định",null));
+    assertEquals(1L,chat.unreadProjects(member).get(project));
+    assertEquals(403,assertThrows(AppException.class,()->chat.pin(member,project,original.id(),true)).getHttpStatus().value());
+    chat.pin(manager,project,original.id(),true);
+    assertEquals(original.id(),chat.pinned(member,project).orElseThrow().id());
+    chat.pin(manager,project,response.id(),true);
+    assertEquals(response.id(),chat.pinned(member,project).orElseThrow().id());
+    assertEquals(1,jdbc.queryForObject(
+        "select count(*) from outbox_event where type='notification.chat_mention' and aggregate_id=?",
+        Integer.class,project));
+    var delivery=jdbc.queryForObject("select payload::text from outbox_event where type='notification.chat_mention' and aggregate_id=?",
+        String.class,project);
+    var saved=notificationProcessor.deliver(notificationProcessor.parse(delivery));
+    String token=loginToken(r.member().getUsername(),"Passw0rd!");
+    var destination=doGet("/api/v1/notifications/"+saved.getId()+"/target",token);
+    assertEquals(200,destination.getResponse().getStatus(),destination.getResponse().getContentAsString());
+    assertEquals("/projects/"+project+"/chat",json(destination).path("data").path("path").asText());
+    var before=chat.list(member,project,null,null,null,50).revision();
+    var liveOriginal=chat.message(manager,project,original.id());
+    chat.delete(manager,project,original.id(),liveOriginal.changedSeq(),null);
+    assertNull(chat.message(member,project,response.id()).replyTo().body());
+    assertTrue(chat.list(member,project,null,before,null,50).items().stream()
+        .anyMatch(row->row.id().equals(response.id())&&row.replyTo().body()==null));
+    assertTrue(chat.search(member,project,"100%",null).isEmpty());
+    projects.removeMember(manager,project,member);
+    assertFalse(chat.unreadProjects(member).containsKey(project));
+    assertEquals(404,doGet("/api/v1/notifications/"+saved.getId()+"/target",token).getResponse().getStatus());
+  }
+
+  @Autowired vn.smarttask.notify.service.NotificationProcessor notificationProcessor;
+
+  @Test void canCreateTaskFromChatWithAtomicDueDateAndPrimaryAssignee() throws Exception {
+    var r=room();var actor=r.manager().getId();
+    var original=chat.send(actor,r.project(),message("Nội dung cần tạo công việc"));
+    var token=loginToken(r.manager().getUsername(),"Passw0rd!");
+    var body=Map.of("project_id",r.project(),"title",original.body(),"description",original.body(),
+        "due_date","2030-01-20","due_timezone","Asia/Bangkok","primary_assignee_id",r.member().getId());
+    var headers=Map.of("Idempotency-Key",idem());
+    var created=doPost("/api/v1/tasks",token,body,headers);
+    assertEquals(200,created.getResponse().getStatus(),created.getResponse().getContentAsString());
+    var id=UUID.fromString(json(created).path("data").path("id").asText());
+    assertEquals(r.member().getId(),assignments.findByTaskIdAndStatus(id,"ACTIVE").stream()
+        .filter(row->row.isPrimary()).findFirst().orElseThrow().getUserId());
+    assertTrue(taskRepo.findById(id).orElseThrow().isDueIsDateOnly());
+    var retry=doPost("/api/v1/tasks",token,body,headers);
+    assertEquals(id.toString(),json(retry).path("data").path("id").asText());
+  }
+
   @Test void activeMembersOnlyAndRemovedMembersLoseAccess() {
     var r=room();var outsider=activeUser("chatoutside","Passw0rd!");var guest=activeUser("chatguest","Passw0rd!");
     addProjectMember(r.manager().getId(),r.project(),guest.getId(),"GUEST");

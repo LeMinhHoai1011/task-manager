@@ -1,8 +1,24 @@
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { vi, test, expect } from "vitest";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import MyTasks from "../pages/MyTasks";
+import { PersonalTaskRoute } from "../pages/PersonalChecklist";
 const { fetchMock } = vi.hoisted(() => ({ fetchMock: vi.fn() }));
 vi.mock("../api/client", () => ({ apiFetch: fetchMock }));
+
+test("opens a personal task directly without loading the task list", async () => {
+  fetchMock.mockReset();
+  fetchMock.mockResolvedValue({ data: {
+    task: { title: "Việc từ lịch", version: 4 },
+    checklist: [],
+    tags: [],
+  } });
+  render(<MemoryRouter initialEntries={["/my-tasks/private-1"]}>
+    <Routes><Route path="/my-tasks/:id" element={<PersonalTaskRoute />} /></Routes>
+  </MemoryRouter>);
+  expect(await screen.findByRole("heading", { name: "Việc từ lịch" })).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledExactlyOnceWith("/me/tasks/private-1");
+});
 
 test("edits private notes using the task version", async () => {
   fetchMock.mockReset();

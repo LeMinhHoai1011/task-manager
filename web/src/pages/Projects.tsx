@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { apiFetch, mutationOpts, newIdempotencyKey, unwrapPage } from "../api/client";
+import { apiFetch, mutationOpts, newIdempotencyKey, unwrapData, unwrapPage } from "../api/client";
 import { t } from "../i18n";
 import { useRealtimeEvent } from "../realtime/RealtimeContext";
 import { Button, Card, EmptyState, ErrorAlert, Spinner, TextInput } from "../components/ui";
@@ -36,6 +36,16 @@ export default function Projects() {
   const [newWs, setNewWs] = useState("");
   const [formErr, setFormErr] = useState<string | null>(null);
   const workspaces:WorkspaceOption[]=access.workspaces;
+  const [chatCounts,setChatCounts]=useState<Record<string,number>>({});
+  const loadChatCounts=useCallback(async(signal?:AbortSignal)=>{
+    try {
+      const result=unwrapData<Record<string,number>>(await apiFetch("/chat/unread",{signal}));
+      if(!signal?.aborted&&result)setChatCounts(result);
+    } catch {}
+  },[]);
+  useEffect(()=>{const request=new AbortController();void loadChatCounts(request.signal);return()=>request.abort();},[loadChatCounts]);
+  useRealtimeEvent(["chat"],()=>void loadChatCounts());
+  const chatBadge=(id:string)=>chatCounts[id]>0?<Link className="chat-unread-badge" to={`/projects/${id}/chat`} aria-label={`${chatCounts[id]} tin chưa đọc`}>{chatCounts[id]>99?"99+":chatCounts[id]}</Link>:null;
   const [actionBusy, setActionBusy] = useState(false);
 
   async function projectAction(id: string, activate: boolean) {
@@ -58,26 +68,33 @@ export default function Projects() {
     }
   }
 
+  const loadSequence = useRef(0);
   const load = useCallback(async (cursor?: string | null, ws?: string) => {
-    if (!cursor) setLoading(true);
+    const request = ++loadSequence.current;
+    setLoading(true);
     setErr(null);
     try {
       const r = await apiFetch("/projects", {
-        query: { workspace_id: ws || undefined, cursor: cursor || undefined, limit: 20 },
+        query: { workspace_id: ws || undefined, q: q.trim() || undefined, cursor: cursor || undefined, limit: 20 },
       });
+      if (request !== loadSequence.current) return;
       const page = unwrapPage<Project>(r);
       setItems((prev) => (cursor ? [...prev, ...page.items] : page.items));
       setNextCursor(page.nextCursor);
     } catch (e: any) {
-      setErr(e?.uiMessage ?? t("error.generic"));
+      if (request === loadSequence.current) setErr(e?.uiMessage ?? t("error.generic"));
     } finally {
-      setLoading(false);
+      if (request === loadSequence.current) setLoading(false);
     }
-  }, []);
+  }, [q]);
 
   useEffect(() => {
-    void load(null, wsFilter.trim() || undefined);
-  }, [load]);
+    const timer = window.setTimeout(() => void load(null, wsFilter.trim() || undefined), q ? 250 : 0);
+    return () => {
+      window.clearTimeout(timer);
+      loadSequence.current++;
+    };
+  }, [load, q, wsFilter]);
 
   useRealtimeEvent(["project"], () => {
     void load(null, wsFilter.trim() || undefined);
@@ -107,7 +124,6 @@ export default function Projects() {
     }
   }
 
-  const filtered = items.filter((p) => p.name.toLowerCase().includes(q.toLowerCase()));
 
   if (err && items.length === 0 && !loading) return <ErrorAlert message={err} />;
 
@@ -172,7 +188,7 @@ export default function Projects() {
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
-        <SearchSelect label="Không gian làm việc" value={wsFilter} onChange={value=>{setWsFilter(value);void load(null,value||undefined);}} options={workspaces.map(w=>({id:w.id,name:w.name}))} placeholder="Tất cả không gian làm việc"/>
+        <SearchSelect label="Không gian làm việc" value={wsFilter} onChange={setWsFilter} options={workspaces.map(w=>({id:w.id,name:w.name}))} placeholder="Tất cả không gian làm việc"/>
       </div>
 
       {nextCursor&&<p className="text-sm text-slate-500">Tìm theo tên trong các dự án đã tải. Bấm “Xem thêm” để tìm ở các trang sau.</p>}
@@ -182,14 +198,14 @@ export default function Projects() {
         <div className="mt-8 flex justify-center">
           <Spinner />
         </div>
-      ) : filtered.length === 0 ? (
+      ) : items.length === 0 ? (
         <div className="mt-4">
           <EmptyState title="Không tìm thấy dự án" description="Tạo dự án mới để bắt đầu quản lý công việc." />
         </div>
       ) : viewMode === "card" ? (
         /* CARD VIEW */
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((p) => {
+          {items.map((p) => {
             const wsName = workspaces.find((w) => w.id === p.workspace_id)?.name ?? "Không gian làm việc";
             return (
               <Card
@@ -204,6 +220,7 @@ export default function Projects() {
                     >
                       {p.name}
                     </Link>
+                    {chatBadge(p.id)}
                     {p.status && (
                       <span className="badge-state badge-todo text-[11px] font-semibold">
                         {statusLabel(p.status)}
@@ -271,14 +288,14 @@ export default function Projects() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
-              {filtered.map((p) => {
+              {items.map((p) => {
                 const wsName = workspaces.find((w) => w.id === p.workspace_id)?.name ?? "Không gian làm việc";
                 return (
                   <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
                     <td className="p-3.5 font-semibold text-slate-900 dark:text-white">
                       <Link to={`/projects/${p.id}`} className="hover:text-blue-600">
                         {p.name}
-                      </Link>
+                      </Link> {chatBadge(p.id)}
                     </td>
                     <td className="p-3.5 text-slate-500">{wsName}</td>
                     <td className="p-3.5">

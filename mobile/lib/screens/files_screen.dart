@@ -78,11 +78,10 @@ class _FilesScreenState extends State<FilesScreen> {
       final data = await api.get(ApiPaths.attachments(widget.taskId));
       // Backend tra {data: {items: [...]}} (FileController.listByTask).
       _items = PageParser.parseList(data);
+    } on ApiException catch (e) {
+      _error = e.isNotFound ? e.envelope.neutralMessage : e.envelope.code;
     } on DioException catch (e) {
-      final err = e.error;
-      _error = err is ApiException
-          ? (err.isNotFound ? err.envelope.neutralMessage : err.envelope.code)
-          : e.message;
+      _error = e.message;
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -91,7 +90,7 @@ class _FilesScreenState extends State<FilesScreen> {
   Future<void> _pick(ImageSource source) async {
     final api = context.read<SessionManager>().api;
     final file = await _picker.pickImage(source: source);
-    if (file == null) return;
+    if (!mounted || file == null) return;
     setState(() {
       _busy = true;
       _notice = null;
@@ -111,7 +110,7 @@ class _FilesScreenState extends State<FilesScreen> {
             'Kích thước file không hợp lệ (tối đa 50MB).');
         return;
       }
-      // PH-3: init upload session -> complete staging -> commit (version monotonic).
+      // PH-3: init -> send bytes -> complete staging -> commit.
       final init = await api.mutate(
         ApiPaths.fileUploadInit,
         method: 'POST',
@@ -127,6 +126,14 @@ class _FilesScreenState extends State<FilesScreen> {
       final sid = (initMap['upload_session_id'])?.toString();
       if (sid == null) throw StateError('missing session');
       await api.mutate(
+        ApiPaths.fileUploadContent(sid),
+        method: 'POST',
+        body: FormData.fromMap({
+          'file': MultipartFile.fromBytes(bytes, filename: file.name),
+        }),
+        idempotencyKey: api.newIdempotencyKey(),
+      );
+      await api.mutate(
         ApiPaths.fileUploadComplete(sid),
         method: 'POST',
         body: {'actual_bytes': bytes.length},
@@ -138,16 +145,22 @@ class _FilesScreenState extends State<FilesScreen> {
         body: {'change_note': 'mobile upload'},
         idempotencyKey: api.newIdempotencyKey(),
       );
+      if (!mounted) return;
       setState(() => _notice =
           'Đã tải lên ${file.name} (lưu ý: file chưa được quét malware).');
       await _load();
+    } on ApiException catch (e) {
+      if (mounted) {
+        setState(() => _error = e.isNotFound ? e.envelope.neutralMessage : e.envelope.code);
+      }
     } on DioException catch (e) {
+      if (!mounted) return;
       final err = e.error;
       setState(() {
         _error = err is ApiException ? err.envelope.code : e.message;
       });
     } on StateError catch (e) {
-      setState(() => _error = e.message);
+      if (mounted) setState(() => _error = e.message);
     } finally {
       if (mounted) setState(() => _busy = false);
     }

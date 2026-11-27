@@ -75,6 +75,21 @@ class CalendarReportRealReadTest {
   }
 
   @Test
+  void rejectsMalformedExportFieldsAndReversedPeriods() {
+    var invalid = List.<Map<String, Object>>of(
+        Map.of("scope_id", "not-a-uuid"),
+        Map.of("period_from", "not-a-date"),
+        Map.of("format", 123),
+        Map.of("period_from", "2026-11-21", "period_to", "2026-11-20"));
+    for (var body : invalid) {
+      var error = assertThrows(AppException.class, () -> reportController.requestExport(body, "test"));
+      assertEquals(400, error.getHttpStatus().value());
+      assertEquals("EXPORT_INVALID", error.getReasonCode());
+    }
+    org.mockito.Mockito.verifyNoInteractions(reports);
+  }
+
+  @Test
   void remindersReadRepoForActor() {
     when(reminders.findByUserId(org.mockito.ArgumentMatchers.eq(actor),org.mockito.ArgumentMatchers.any(org.springframework.data.domain.Pageable.class))).thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(
         new ReminderRule(UUID.randomUUID(), UUID.randomUUID(), actor,

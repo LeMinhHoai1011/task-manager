@@ -12,6 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 import vn.smarttask.common.AppException;
 import vn.smarttask.common.UuidV7;
 import vn.smarttask.common.service.AuditService;
+import vn.smarttask.common.service.OutboxService;
 import vn.smarttask.common.service.TokenHash;
 import vn.smarttask.realtime.RealtimePublisher;
 import vn.smarttask.security.PolicyEnforcer;
@@ -24,14 +25,20 @@ public class ProjectChatService {
   private final TaskRepository tasks;
   private final RealtimePublisher realtime;
   private final AuditService audit;
+  private final OutboxService outbox;
   private static final Set<String> ROLES=Set.of("OWNER","ADMIN","MANAGER","MEMBER");
 
   public ProjectChatService(JdbcTemplate jdbc, PolicyEnforcer policy, TaskRepository tasks,
-      RealtimePublisher realtime, AuditService audit) {
-    this.jdbc=jdbc;this.policy=policy;this.tasks=tasks;this.realtime=realtime;this.audit=audit;
+      RealtimePublisher realtime, AuditService audit, OutboxService outbox) {
+    this.jdbc=jdbc;this.policy=policy;this.tasks=tasks;this.realtime=realtime;this.audit=audit;this.outbox=outbox;
   }
   public record Access(boolean read, boolean write, boolean moderate, String reason) {}
-  public record Send(UUID clientMessageId, String body, UUID linkedTaskId) {}
+  public record Send(UUID clientMessageId, String body, UUID linkedTaskId, UUID replyToId) {
+    public Send(UUID clientMessageId, String body, UUID linkedTaskId) {
+      this(clientMessageId, body, linkedTaskId, null);
+    }
+  }
+  public record Quote(UUID id, String body) {}
   public record TaskLink(UUID id, String title, String state) {}
   public record Message(UUID id, long seq, @JsonProperty("changed_seq") long changedSeq,
       @JsonProperty("sender_id") UUID senderId, @JsonProperty("sender_name") String senderName,
@@ -39,14 +46,20 @@ public class ProjectChatService {
       @JsonProperty("client_message_id") UUID clientMessageId, String body,
       @JsonProperty("linked_task") TaskLink linkedTask,
       @JsonProperty("task_unavailable") boolean taskUnavailable,
-      @JsonProperty("created_at") OffsetDateTime createdAt, boolean deleted) {}
+      @JsonProperty("created_at") OffsetDateTime createdAt, boolean deleted,
+      @JsonProperty("reply_to") Quote replyTo, boolean pinned) {}
   public record Page(List<Message> items, long revision,
       @JsonProperty("next_before") Long nextBefore, @JsonProperty("next_after") Long nextAfter,
       @JsonProperty("has_more") boolean hasMore, Access access, Unread unread) {}
   public record Unread(long count, @JsonProperty("last_read_seq") long lastReadSeq) {}
   private record Row(UUID id,long seq,long changedSeq,UUID senderId,String name,String username,
-      UUID clientId,String hash,String body,UUID taskId,OffsetDateTime createdAt,OffsetDateTime deletedAt) {}
-  private static final String SELECT="select m.*,u.display_name,u.username from project_message m join app_user u on u.id=m.sender_user_id ";
+      UUID clientId,String hash,String body,UUID taskId,OffsetDateTime createdAt,OffsetDateTime deletedAt,
+      Quote reply,boolean pinned) {}
+  private static final String SELECT="""
+      select m.*,u.display_name,u.username,left(q.body,160) quote_body
+      from project_message m join app_user u on u.id=m.sender_user_id
+      left join project_message q on q.id=m.reply_to_id and q.project_id=m.project_id and q.deleted_at is null
+      """;
 
   /** Chat is project-wide: a task guest or a global administrator does not inherit access. */
   private Access access(UUID actor,UUID project,boolean lock) {
@@ -92,10 +105,12 @@ public class ProjectChatService {
     return body;
   }
   private Row row(ResultSet rs,int index) throws SQLException {
+    var replyId=rs.getObject("reply_to_id",UUID.class);
     return new Row(rs.getObject("id",UUID.class),rs.getLong("seq"),rs.getLong("changed_seq"),
         rs.getObject("sender_user_id",UUID.class),rs.getString("display_name"),rs.getString("username"),
         rs.getObject("client_message_id",UUID.class),rs.getString("request_hash"),rs.getString("body"),
-        rs.getObject("linked_task_id",UUID.class),rs.getObject("created_at",OffsetDateTime.class),rs.getObject("deleted_at",OffsetDateTime.class));
+        rs.getObject("linked_task_id",UUID.class),rs.getObject("created_at",OffsetDateTime.class),rs.getObject("deleted_at",OffsetDateTime.class),
+        replyId==null?null:new Quote(replyId,rs.getString("quote_body")),rs.getBoolean("pinned"));
   }
   private Row get(UUID project,UUID id) {
     return jdbc.query(SELECT+"where m.project_id=? and m.id=?",this::row,project,id).stream()
@@ -109,7 +124,8 @@ public class ProjectChatService {
       links.put(task.getId(),new TaskLink(task.getId(),task.getTitle(),task.getState()));
     return rows.stream().map(r->new Message(r.id(),r.seq(),r.changedSeq(),r.senderId(),r.name(),r.username(),
         r.clientId(),r.deletedAt()!=null?null:r.body(),r.deletedAt()!=null?null:links.get(r.taskId()),
-        r.deletedAt()==null&&r.taskId()!=null&&!links.containsKey(r.taskId()),r.createdAt(),r.deletedAt()!=null)).toList();
+        r.deletedAt()==null&&r.taskId()!=null&&!links.containsKey(r.taskId()),r.createdAt(),r.deletedAt()!=null,
+        r.deletedAt()==null?r.reply():null,r.pinned())).toList();
   }
   private void signal(UUID project,String kind,UUID object) {
     // Reuse the existing post-commit publisher; never put text or task titles in signals.
@@ -121,7 +137,7 @@ public class ProjectChatService {
     String body=text(request);
     writable(access(actor,project,true));
     lock(project);
-    String hash=TokenHash.sha256(body+"\0"+request.linkedTaskId());
+    String hash=TokenHash.sha256(body+"\0"+request.linkedTaskId()+(request.replyToId()==null?"":"\0"+request.replyToId()));
     var previous=jdbc.query(SELECT+"where m.project_id=? and m.sender_user_id=? and m.client_message_id=?",this::row,project,actor,request.clientMessageId());
     if(!previous.isEmpty()) {
       if(!hash.equals(previous.get(0).hash()))throw AppException.stateConflict("IDEMPOTENCY_CONFLICT","Message identity reused with different content");
@@ -134,10 +150,13 @@ public class ProjectChatService {
       var task=tasks.findById(request.linkedTaskId()).orElseThrow(()->AppException.notFound("Task not found"));
       if(!project.equals(task.getProjectId()))throw AppException.badRequest("CHAT_TASK_SCOPE","Task belongs to another project");
     }
+    if(request.replyToId()!=null && get(project,request.replyToId()).deletedAt()!=null)
+      throw AppException.notFound("Message not found");
     long seq=next(project);UUID id=UuidV7.generate();
-    jdbc.update("insert into project_message(id,project_id,seq,changed_seq,sender_user_id,client_message_id,request_hash,body,linked_task_id) values(?,?,?,?,?,?,?,?,?)",id,project,seq,seq,actor,request.clientMessageId(),hash,body,request.linkedTaskId());
+    jdbc.update("insert into project_message(id,project_id,seq,changed_seq,sender_user_id,client_message_id,request_hash,body,linked_task_id,reply_to_id) values(?,?,?,?,?,?,?,?,?,?)",id,project,seq,seq,actor,request.clientMessageId(),hash,body,request.linkedTaskId(),request.replyToId());
     audit.append(actor,"chat.send","project",project,"ALLOWED",null,"{}");
     signal(project,"CHAT_MESSAGE_CREATED",id);
+    mention(actor,project,id,body);
     return display(actor,List.of(get(project,id))).get(0);
   }
   @Transactional(readOnly=true)
@@ -168,10 +187,87 @@ public class ProjectChatService {
     if(message.deletedAt()!=null)return display(actor,List.of(message)).get(0);
     if(version!=message.changedSeq())throw AppException.versionConflict("Message changed",message.changedSeq());
     long change=next(project);
-    jdbc.update("update project_message set changed_seq=?,deleted_at=clock_timestamp(),deleted_by=?,delete_reason=? where id=? and project_id=?",change,actor,reason==null?null:reason.strip(),id,project);
+    jdbc.update("update project_message set changed_seq=?,deleted_at=clock_timestamp(),deleted_by=?,delete_reason=?,pinned=false where id=? and project_id=?",change,actor,reason==null?null:reason.strip(),id,project);
+    for(var reply:jdbc.queryForList("select id from project_message where project_id=? and reply_to_id=? and deleted_at is null",UUID.class,project,id))
+      jdbc.update("update project_message set changed_seq=? where id=?",next(project),reply);
     audit.append(actor,"chat.delete","project",project,"ALLOWED",actor.equals(message.senderId())?"AUTHOR":"MANAGER", "{}");
     signal(project,"CHAT_MESSAGE_DELETED",id);
     return display(actor,List.of(get(project,id))).get(0);
+  }
+  private void mention(UUID actor,UUID project,UUID message,String body) {
+    var matcher=java.util.regex.Pattern.compile("(?<![\\p{L}\\p{N}_@])@([\\p{L}\\p{N}_-]+(?:\\.[\\p{L}\\p{N}_-]+)*)").matcher(body);
+    var names=new LinkedHashSet<String>();
+    while(matcher.find()&&names.size()<20) names.add(matcher.group(1).toLowerCase(Locale.ROOT));
+    for(var name:names) {
+      var matches=jdbc.queryForList("""
+          select m.user_id from project_membership m join app_user u on u.id=m.user_id
+          where m.project_id=? and m.user_id<>? and m.status='ACTIVE'
+            and m.role in ('OWNER','ADMIN','MANAGER','MEMBER') and u.username=?
+            and u.active and u.status='ACTIVE' and not u.locked and u.deleted_at is null
+          """,UUID.class,project,actor,name);
+      for(var recipient:matches) {
+        outbox.emit("project",project,"notification.chat_mention",
+            """
+            {"user_id":"%s","type":"CHAT_MENTION","scope_type":"PROJECT","scope_id":"%s",
+            "title_key":"notification.chat_mention","body_key":"notification.chat_mention",
+            "deep_link":"/projects/%s/chat","dedup_token":"chat-mention:%s:%s"}
+            """.formatted(recipient,project,project,message,recipient));
+      }
+    }
+  }
+  @Transactional(readOnly=true)
+  public List<Message> search(UUID actor,UUID project,String query,Long before) {
+    access(actor,project,false);
+    if(query==null||query.isBlank()||query.length()>200||query.indexOf(0)>=0||before!=null&&before<1)
+      throw AppException.badRequest("CHAT_INVALID","Invalid search");
+    return display(actor,jdbc.query(SELECT+"""
+        where m.project_id=? and m.deleted_at is null and m.seq<? and strpos(lower(m.body),lower(?))>0
+        order by m.seq desc limit 50
+        """,this::row,project,before==null?Long.MAX_VALUE:before,query.strip()));
+  }
+  @Transactional(readOnly=true)
+  public Optional<Message> pinned(UUID actor,UUID project) {
+    access(actor,project,false);
+    return display(actor,jdbc.query(SELECT+"where m.project_id=? and m.pinned and m.deleted_at is null",
+        this::row,project)).stream().findFirst();
+  }
+  @Transactional(readOnly=true)
+  public Message message(UUID actor,UUID project,UUID id) {
+    access(actor,project,false);
+    return display(actor,List.of(get(project,id))).get(0);
+  }
+  @Transactional
+  public void pin(UUID actor,UUID project,UUID id,boolean pinned) {
+    var permission=access(actor,project,true);
+    writable(permission);
+    if(!permission.moderate())throw AppException.forbidden("Project manager required");
+    lock(project);
+    var row=get(project,id);
+    if(row.deletedAt()!=null)throw AppException.notFound("Message not found");
+    if(row.pinned()==pinned)return;
+    if(pinned)jdbc.update("update project_message set pinned=false,changed_seq=? where project_id=? and pinned",next(project),project);
+    jdbc.update("update project_message set pinned=?,changed_seq=? where project_id=? and id=?",pinned,next(project),project,id);
+    audit.append(actor,pinned?"chat.pin":"chat.unpin","project",project,"ALLOWED",null,"{}");
+    signal(project,"CHAT_MESSAGE_PIN_CHANGED",id);
+  }
+  @Transactional(readOnly=true)
+  public Map<UUID,Long> unreadProjects(UUID actor) {
+    var counts=new HashMap<UUID,Long>();
+    jdbc.query("""
+        select p.id,count(msg.id) unread
+        from project_membership m join project p on p.id=m.project_id
+        join workspace w on w.id=p.workspace_id join app_user u on u.id=m.user_id
+        left join project_message_read r on r.project_id=p.id and r.user_id=m.user_id
+        join project_message msg on msg.project_id=p.id and msg.seq>coalesce(r.last_read_seq,0)
+          and msg.deleted_at is null and msg.sender_user_id<>m.user_id
+        where m.user_id=? and m.status='ACTIVE' and m.role in ('OWNER','ADMIN','MANAGER','MEMBER')
+          and u.active and u.status='ACTIVE' and not u.locked and u.deleted_at is null
+          and (u.locked_until is null or u.locked_until<=clock_timestamp())
+          and p.status<>'DELETED' and w.status<>'DELETED' and p.deleted_at is null and w.deleted_at is null
+        group by p.id
+        """,(org.springframework.jdbc.core.RowCallbackHandler) row ->
+        counts.put(row.getObject(1,UUID.class),row.getLong(2)),actor);
+    return counts;
   }
   @Transactional(readOnly=true)
   public Unread unread(UUID actor,UUID project) {

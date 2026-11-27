@@ -12,12 +12,12 @@ vi.mock("../auth/AuthContext",()=>({useAuth:()=>({user:{id:identity.id}})}));
 vi.mock("../auth/AccessContext",async original=>({...await original<typeof import("../auth/AccessContext")>(),useAccess:()=>({loading:false,projects:[{id:"project-a",name:"Dự án A",role:"MANAGER"},{id:"project-b",name:"Dự án B",role:"MEMBER"}]})}));
 const permission={read:true,write:true,moderate:true};
 const noop=()=>{};
-let rows:ChatMessage[],revision:number,failSend:boolean;
+let rows:ChatMessage[],revision:number,failSend:boolean,unreadCount:number;
 function message(id:string,seq:number,body:string,owner="me"):ChatMessage{return {id,seq,changed_seq:seq,sender_id:owner,sender_name:owner==="me"?"Nguyễn An":"Trần Bình",sender_username:owner,client_message_id:`client-${id}`,body,deleted:false,created_at:"2026-11-18T09:00:00Z",linked_task:null,task_unavailable:false};}
-function page(items=rows){return {data:{items,revision,next_before:null,next_after:revision,has_more:false,access:permission,unread:{count:0,last_read_seq:0}}};}
+function page(items=rows){return {data:{items,revision,next_before:null,next_after:revision,has_more:false,access:permission,unread:{count:unreadCount,last_read_seq:0}}};}
 function wrapper(project="project-a",event:any=null){return <MemoryRouter><TestRealtimeProvider lastEvent={event}><ChatDraftProvider><ProjectChat key={project} projectId={project} onUnread={noop}/></ChatDraftProvider></TestRealtimeProvider></MemoryRouter>;}
 beforeEach(()=>{
-  identity.id="me";rows=[];revision=0;failSend=false;request.mockReset();
+  identity.id="me";rows=[];revision=0;failSend=false;unreadCount=0;request.mockReset();
   request.mockImplementation((path:string,opts:any)=>{
     if(path==="/tasks")return Promise.resolve({data:{items:[{id:"task-a",title:"Công việc liên quan",project_id:"project-a"}]}});
     if(opts?.method==="POST"){
@@ -28,6 +28,17 @@ beforeEach(()=>{
     if(opts?.method==="PUT")return Promise.resolve({data:{count:0,last_read_seq:opts.body.last_read_seq}});
     return Promise.resolve(page(opts?.query?.after!=null?rows.filter(m=>m.changed_seq>opts.query.after):rows));
   });
+});
+
+test("đánh dấu tin chưa đọc và gom các tin liên tiếp cùng người gửi", async()=>{
+  rows=[message("one",1,"Đã xem bản kế hoạch","peer"),message("two",2,"Mình sẽ cập nhật tiến độ","peer")];
+  revision=2;unreadCount=2;
+  render(wrapper());
+  expect(await screen.findByText("Tin chưa đọc")).toBeInTheDocument();
+  const messages=screen.getAllByRole("article",{name:"Tin của Trần Bình"});
+  expect(messages[0]).toHaveClass("has-continuation");
+  expect(messages[1]).toHaveClass("is-continued");
+  expect(screen.getAllByText("Trần Bình")).toHaveLength(1);
 });
 
 test("gửi thất bại giữ nội dung và thử lại cùng định danh",async()=>{

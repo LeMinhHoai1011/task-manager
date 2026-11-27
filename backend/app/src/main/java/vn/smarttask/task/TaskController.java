@@ -33,7 +33,9 @@ public class TaskController {
       @JsonProperty("updated_at") OffsetDateTime updatedAt,
       @JsonProperty("priority") String priority,
       @JsonProperty("due_at") OffsetDateTime dueAt,
-      @JsonProperty("description") String description) {}
+      @JsonProperty("description") String description,
+      @JsonProperty("blocked_reason") String blockedReason,
+      @JsonProperty("primary_assignee_name") String primaryAssigneeName) {}
 
   private final TaskService service;
   private final PolicyEnforcer policy;
@@ -78,13 +80,21 @@ public class TaskController {
   }
 
   private static TaskDto dto(Task t) {
+    return dto(t, null);
+  }
+
+  private static TaskDto dto(Task t, String primaryAssigneeName) {
     return new TaskDto(t.getId(), t.getProjectId(), t.getTitle(), t.getState(),
-        t.isBlockedFlag(), t.getVersion(), t.getUpdatedAt(),t.getPriority(),t.getDueAt(),t.getDescription());
+        t.isBlockedFlag(), t.getVersion(), t.getUpdatedAt(),t.getPriority(),t.getDueAt(),t.getDescription(),
+        t.getBlockedReason(), primaryAssigneeName);
   }
 
   /** Java-call compatibility for existing controller consumers. */
   public ResponseEntity<ApiResult<PageResponse<TaskDto>>> list(UUID projectId,UUID alias,String state,UUID assignee,String tag,Boolean blocked,Integer depth,Boolean overdue,String sort,String order,String cursor,int limit) {
-    return list(projectId,alias,state,null,assignee,tag,blocked,depth,overdue,sort,order,cursor,limit);
+    return list(projectId,alias,state,null,assignee,tag,blocked,depth,overdue,null,sort,order,cursor,limit,null);
+  }
+  public ResponseEntity<ApiResult<PageResponse<TaskDto>>> list(UUID projectId,UUID alias,String state,String priority,UUID assignee,String tag,Boolean blocked,Integer depth,Boolean overdue,String q,String sort,String order,String cursor,int limit) {
+    return list(projectId,alias,state,priority,assignee,tag,blocked,depth,overdue,q,sort,order,cursor,limit,null);
   }
   @GetMapping
   @RequiresPermission("task:read")
@@ -98,18 +108,25 @@ public class TaskController {
       @RequestParam(required = false) Boolean blocked,
       @RequestParam(required = false) Integer depth,
       @RequestParam(required = false) Boolean overdue,
+      @RequestParam(required = false) String q,
       @RequestParam(required = false, defaultValue = "updated_at") String sort,
       @RequestParam(required = false, defaultValue = "desc") String order,
       @RequestParam(required = false) String cursor,
-      @RequestParam(required = false, defaultValue = "20") int limit) {
+      @RequestParam(required = false, defaultValue = "20") int limit,
+      @RequestParam(required = false) String attention) {
     UUID actor = CurrentActor.userId();
     UUID projectFilter = projectId != null ? projectId : projectIdAlias;
     if (projectFilter != null) {
       policy.requireProjectRead(actor, projectFilter);
     }
     var result = service.search(actor, new TaskService.Filter(projectFilter,state,priority,assigneeId,tag,
-        blocked,depth,overdue,sort,order,cursor,limit));
-    var page = result.items().stream().map(TaskController::dto).toList();
+        blocked,depth,overdue,sort,order,cursor,limit,q,attention));
+    var primaryNames = new java.util.HashMap<UUID, String>();
+    if (attention != null && !result.items().isEmpty()) {
+      var ids = result.items().stream().map(Task::getId).toList();
+      assignments.primaryNames(ids).forEach(primary -> primaryNames.put(primary.getTaskId(), primary.getDisplayName()));
+    }
+    var page = result.items().stream().map(task -> dto(task, primaryNames.get(task.getId()))).toList();
     int pageSize=result.size(); long total=result.total(); String next=result.next();
     java.util.Map<String, Object> filters = new java.util.LinkedHashMap<>();
     if (projectFilter != null) filters.put("project_id", projectFilter.toString());
@@ -119,6 +136,7 @@ public class TaskController {
     if (blocked != null) filters.put("blocked", blocked);
     if (depth != null) filters.put("depth", depth);
     if (overdue != null) filters.put("overdue", overdue);
+    if (attention != null) filters.put("attention", attention);
     filters.put("sort", sort == null ? "updated_at" : sort);
     return ResponseEntity.ok(ApiResult.ok(PageResponse.ofPage(page, next, next != null,
         pageSize, total, filters, null),
@@ -136,7 +154,7 @@ public class TaskController {
     Task t;
     if(creation==null)t=service.create(actor,projectId,(String)body.get("title"),(String)body.get("description"),(String)body.getOrDefault("priority","MEDIUM"),body.get("milestone_id")==null?null:UUID.fromString((String)body.get("milestone_id")));
     else {
-      try {t=creation.create(actor,new vn.smarttask.task.service.TaskCreationService.Input(projectId,(String)body.get("title"),(String)body.get("description"),(String)body.getOrDefault("priority","MEDIUM"),body.get("milestone_id")==null?null:UUID.fromString((String)body.get("milestone_id")),body.get("due_date")==null?null:LocalDate.parse((String)body.get("due_date")),body.get("due_at")==null?null:OffsetDateTime.parse((String)body.get("due_at")),(String)body.get("due_timezone")),idem);}
+      try {t=creation.create(actor,new vn.smarttask.task.service.TaskCreationService.Input(projectId,(String)body.get("title"),(String)body.get("description"),(String)body.getOrDefault("priority","MEDIUM"),body.get("milestone_id")==null?null:UUID.fromString((String)body.get("milestone_id")),body.get("due_date")==null?null:LocalDate.parse((String)body.get("due_date")),body.get("due_at")==null?null:OffsetDateTime.parse((String)body.get("due_at")),(String)body.get("due_timezone")),idem,body.get("primary_assignee_id")==null?null:UUID.fromString((String)body.get("primary_assignee_id")));}
       catch(java.time.DateTimeException e){throw AppException.badRequest("SCHEDULE_INVALID","Invalid deadline");}
     }
     return ResponseEntity.ok(ApiResult.ok(dto(t), "task.create.success"));

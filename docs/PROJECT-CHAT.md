@@ -4,13 +4,16 @@ Triển khai ngày 18/11/2026. Bản đầu dùng PostgreSQL hiện có, API đ�
 
 ## Cách dùng
 
-1. Mở dự án → **Trao đổi**. Không cần chọn lại dự án hoặc người nhận.
+1. Trên web hoặc Flutter, mở dự án → **Trò chuyện** để vào phòng chung.
 2. Nhập nội dung → **Gửi tin nhắn**. Máy tính dùng Enter để gửi, Shift + Enter xuống dòng; đang gõ tổ hợp ký tự không tự gửi. Điện thoại có nút gửi.
 3. Dùng **Liên kết công việc** để chọn một việc trong dự án theo tên. Người nhận chỉ thấy tên/liên kết nếu có quyền xem công việc đó; quyền được kiểm tra lại khi mở.
 4. Tin đang gửi có trạng thái riêng. Lỗi mạng giữ bản tin để **Thử lại tin nhắn** bằng cùng định danh; không tự tạo bản sao. Có thể **Sửa bản gửi** khi khung soạn trống; giữ định danh nếu nội dung/liên kết không đổi, dùng lần gửi mới khi đã chỉnh nội dung. Lỗi một liên kết không tự đóng phòng còn quyền xem. **Đã gửi** nghĩa là máy chủ đã lưu, không khẳng định mọi người đã đọc.
 5. Dùng **Xem tin trước** để tải lịch sử cũ. Khi đang đọc ở trên, tin mới có nút **Có tin mới**, không tự kéo xuống cuối.
 6. Bấm **Xóa** ở tin của mình, sau đó xác nhận. Tin được thay bằng **Tin nhắn đã được xóa**. Quản lý xóa tin người khác phải nhập lý do từ 3 đến 500 ký tự.
 7. Dấu chưa đọc được lưu theo người dùng/dự án, không tính tin tự gửi hoặc tin đã xóa. Chỉ đánh dấu đến vị trí mới khi phần cuối đang hiện trong trang trình duyệt đang hiển thị.
+8. Dùng **Trả lời** để trích dẫn một tin. Mở trích dẫn để đến tin đang tải, hoặc xem tin gốc trong cửa sổ nếu nó nằm ngoài đoạn lịch sử hiện tại.
+9. Gõ `@tên_đăng_nhập` để nhắc một thành viên đang hoạt động trong dự án. Mỗi người nhận tối đa một thông báo cho mỗi tin. Mở thông báo sẽ kiểm tra lại quyền rồi vào đúng phòng.
+10. Dùng **Tìm tin nhắn** để tra nội dung theo từ khóa. Người quản lý có thể ghim một tin ở đầu phòng. Người có quyền tạo việc có thể chọn **Tạo công việc**, sửa tiêu đề, đặt hạn và chọn người phụ trách nếu có quyền phân công.
 
 Bản nháp chỉ nằm trong bộ nhớ của phiên trang, tách theo tài khoản và dự án; không lưu vào localStorage, sessionStorage hoặc service worker. Có thể giữ khi đổi tab/dự án trong ứng dụng; tải lại/đóng trang có thể mất bản nháp chưa gửi. Đăng xuất hoặc mất quyền sẽ xóa bản nháp liên quan.
 
@@ -55,16 +58,26 @@ Tiền tố: `/api/v1/projects/{projectId}`. Mọi endpoint yêu cầu phiên h�
 | GET | `/chat/access` | Quyền đọc/gửi/quản trị xóa, lý do chỉ đọc |
 | GET | `/messages?before=…&limit=50` | Trang lịch sử cũ theo `seq`, mặc định 50, tối đa 100 |
 | GET | `/messages?after=…&until=…&limit=100` | Trang thay đổi theo `changed_seq`; `until` cố định snapshot của lần đồng bộ |
-| POST | `/messages` | `{client_message_id, body, linked_task_id?}`; tác giả lấy từ phiên |
+| POST | `/messages` | `{client_message_id, body, linked_task_id?, reply_to_id?}`; tác giả lấy từ phiên |
+| GET | `/messages/{messageId}` | Đọc một tin trong phòng để mở trích dẫn hoặc kết quả tìm kiếm |
+| GET | `/chat/search?q=…&before=…` | Tìm từ khóa theo nghĩa đen trong tin chưa xóa. Tối đa 50 kết quả mỗi trang |
+| GET | `/chat/pinned` | Danh sách chứa tối đa một tin ghim |
+| PUT | `/messages/{messageId}/pin` | `{pinned}`; cần quyền quản lý và quyền ghi của dự án |
 | DELETE | `/messages/{messageId}` | Header `If-Match` = `changed_seq`; body `{reason}`; có kiểm tra tác giả/quản lý |
 | GET | `/chat/unread` | `{count, last_read_seq}` |
 | PUT | `/chat/read` | `{last_read_seq}`; không cho lùi mốc hoặc trỏ tới tin không tồn tại trong dự án |
+
+`GET /api/v1/chat/unread` trả bản đồ số tin chưa đọc theo mã dự án được phép truy cập. Web cập nhật theo tín hiệu SSE. Flutter kiểm tra mỗi 15 giây trên danh sách dự án và mỗi 5 giây khi phòng đang mở. Thông báo @nhắc đi qua outbox vào hộp thông báo trong ứng dụng. Push hệ điều hành cần cấu hình một nhà cung cấp riêng.
 
 Trang tin trả `items`, `revision`, `next_before`, `next_after`, `has_more`, `access`, `unread`. Không dùng đồng thời `before` và `after`; `until` chỉ dùng với `after`. `next_after` là mốc an toàn để tiếp tục đồng bộ, không phải số thứ tự SSE của phiên. Tin đã xóa vẫn có dấu thay thế trong lịch sử.
 
 Không nhận `sender_id` do trình duyệt tự khai, không đưa nội dung chat vào log/audit/SSE. API không trả request hash, lý do quản trị hoặc nội dung đã xóa trong DTO tin nhắn.
 
 ## Kiểm thử và bằng chứng
+
+Lượt nâng cấp V20 chạy qua kịch bản web với hai phiên Edge và PostgreSQL cục bộ, gồm trả lời, ghim, tìm, tạo việc có người phụ trách, thông báo @nhắc, giới hạn truy cập và gửi lại sau lỗi mạng. Bằng chứng của lượt chạy hiện tại nằm trong `.run/chat-upgrade-browser/`.
+
+Ba ca `integration_test/project_chat_emulator_test.dart` qua trên AVD Android 36 `SmartTaskChatQA`. Các ca dùng API mô phỏng để kiểm tra phòng chỉ đọc, trả lời, ghim, tìm và gửi lại trên máy ảo. Kịch bản Edge là phần kiểm chứng với backend thật.
 
 Kết quả cuối được ghi trong [báo cáo triển khai](BAO-CAO-NHAN-TIN-DU-AN-2026-11-18.md). Bằng chứng trình duyệt: [ket-qua.json](screenshots/project-chat/ket-qua.json).
 
@@ -84,4 +97,4 @@ Kịch bản trình duyệt cần bộ phiên do `ProjectChatIT#twoAuthenticated
 
 `RealtimeRegistry` hiện nằm trong bộ nhớ một backend. Chưa bổ sung fan-out cho nhiều backend, chưa đo tải lớn hoặc cam kết p95. API tải bù bảo vệ lịch sử khi mất tín hiệu, nhưng không biến nhiều tiến trình thành một hệ thống realtime dùng chung.
 
-Chưa làm nhắn riêng, trả lời theo nhánh, nhắc tên, biểu cảm, tệp chat, đang gõ, gọi thoại/video hoặc danh sách ai đã đọc. Bình luận công việc hiện có vẫn giữ nguyên.
+Migration V20 thêm tham chiếu tin gốc và trạng thái ghim. Khi tin gốc bị xóa, lịch sử và đồng bộ trả trích dẫn đã ẩn. Chọn người phụ trách khi tạo việc dùng cùng giao dịch với việc tạo và đặt hạn.

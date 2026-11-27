@@ -45,3 +45,4 @@ docs/screenshots/**/failure.png
 /deploy/release.images
 /deploy/previous.images
 /web/vitest-junit.xml
+.ci-worktree/

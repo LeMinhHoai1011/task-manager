@@ -52,7 +52,13 @@ public class TaskService {
   private vn.smarttask.security.PolicyEnforcer taskPolicy;
 
   public record Filter(UUID projectId, String state, String priority, UUID assigneeId, String tag,
-      Boolean blocked, Integer depth, Boolean overdue, String sort, String order, String cursor, int limit) {}
+      Boolean blocked, Integer depth, Boolean overdue, String sort, String order, String cursor, int limit,
+      String text, String attention) {
+    public Filter(UUID projectId, String state, String priority, UUID assigneeId, String tag,
+        Boolean blocked, Integer depth, Boolean overdue, String sort, String order, String cursor, int limit, String text) {
+      this(projectId, state, priority, assigneeId, tag, blocked, depth, overdue, sort, order, cursor, limit, text, null);
+    }
+  }
   public record TaskPage(List<Task> items, String next, long total, int size) {}
 
   @Transactional(readOnly = true)
@@ -61,8 +67,11 @@ public class TaskService {
     var assigneeId=filter.assigneeId();var tag=filter.tag();var blocked=filter.blocked();
     var depth=filter.depth();var overdue=filter.overdue();var sort=filter.sort();
     var order=filter.order();var cursor=filter.cursor();int limit=filter.limit();
+    String text = filter.text() == null ? "" : filter.text().strip().toLowerCase(java.util.Locale.ROOT);
     org.springframework.data.jpa.domain.Specification<Task> scope = taskPolicy.readableTasks(actor);
     OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+    if (filter.attention() != null && !java.util.Set.of("overdue", "blocked", "approval", "unassigned").contains(filter.attention()))
+      throw AppException.badRequest("INVALID_ATTENTION", "Unknown attention filter");
     scope = scope.and((task, query, cb) -> {
       var conditions = new java.util.ArrayList<jakarta.persistence.criteria.Predicate>();
       if (projectFilter != null) conditions.add(cb.equal(task.get("projectId"), projectFilter));
@@ -70,6 +79,26 @@ public class TaskService {
       if (priority != null) conditions.add(cb.equal(task.get("priority"), priority.toUpperCase(java.util.Locale.ROOT)));
       if (blocked != null) conditions.add(cb.equal(task.get("blockedFlag"), blocked));
       if (depth != null) conditions.add(cb.equal(task.get("depth"), depth));
+      if (filter.attention() != null) {
+        conditions.add(cb.not(task.get("state").in("COMPLETED", "CANCELLED")));
+        switch (filter.attention()) {
+          case "overdue" -> conditions.add(cb.lessThan(task.get("dueAt"), now));
+          case "blocked" -> conditions.add(cb.isTrue(task.get("blockedFlag")));
+          case "approval" -> conditions.add(cb.equal(task.get("state"), "PENDING_APPROVAL"));
+          case "unassigned" -> {
+            var match = query.subquery(UUID.class);
+            var assignment = match.from(vn.smarttask.task.entity.TaskAssignment.class);
+            match.select(assignment.get("id")).where(cb.equal(assignment.get("taskId"), task.get("id")),
+                cb.equal(assignment.get("status"), "ACTIVE"), cb.isTrue(assignment.get("primary")));
+            conditions.add(cb.not(cb.exists(match)));
+          }
+        }
+      }
+      if (!text.isEmpty()) {
+        conditions.add(cb.or(
+            cb.gt(cb.locate(cb.lower(task.get("title")), text), 0),
+            cb.gt(cb.locate(cb.lower(task.get("description")), text), 0)));
+      }
       if (assigneeId != null) {
         var match = query.subquery(UUID.class);
         var assignment = match.from(vn.smarttask.task.entity.TaskAssignment.class);

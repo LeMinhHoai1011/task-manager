@@ -15,6 +15,7 @@ import 'screens/my_notes_screen.dart';
 import 'screens/my_tasks_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'screens/project_detail_screen.dart';
+import 'screens/project_chat_screen.dart';
 import 'screens/projects_screen.dart';
 import 'screens/reauth_screen.dart';
 import 'screens/reports_screen.dart';
@@ -60,6 +61,13 @@ GoRouter buildRouter(SessionManager session) {
         path: '/projects/:pid/tasks',
         builder: (c, s) =>
             TasksScreen(projectId: s.pathParameters['pid'] ?? ''),
+      ),
+      GoRoute(
+        path: '/projects/:pid/chat',
+        builder: (c, s) => ProjectChatScreen(
+          projectId: s.pathParameters['pid']!,
+          projectName: s.extra is String ? s.extra as String : null,
+        ),
       ),
       GoRoute(
         path: '/tasks/:tid',

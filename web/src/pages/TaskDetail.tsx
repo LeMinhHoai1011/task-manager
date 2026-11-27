@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { apiFetch, mutationOpts, newIdempotencyKey, unwrapData, unwrapList } from "../api/client";
+import { apiFetch, mutationOpts, newIdempotencyKey, unwrapData, unwrapList, type ApiOptions } from "../api/client";
 import type {TaskAccess} from "../auth/AccessContext";
 import ResourcePicker from "../components/ResourcePicker";
 import {activityLabel,formatDate} from "../i18n/labels";
@@ -75,6 +75,7 @@ export default function TaskDetail() {
   const [comments, setComments] = useState<CommentItem[]>([]);
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
   const [err, setErr] = useState<string | null>(null);
+  const [sectionErrors, setSectionErrors] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const loadSequence=useRef(0);
   const [tickBusy,setTickBusy]=useState(false);
@@ -101,6 +102,7 @@ export default function TaskDetail() {
     if (!id) return;
     const request=++loadSequence.current;
     setErr(null);
+    setSectionErrors([]);
     setLoading(true);
     setAccess(null);
     try {
@@ -113,29 +115,42 @@ export default function TaskDetail() {
       setAccess(unwrapData<TaskAccess>(permissions)??null);
     } catch (e: any) {
       if(request===loadSequence.current)setErr(e?.uiMessage ?? t("task.not_found"));
+      return;
     } finally {
       if(request===loadSequence.current)setLoading(false);
     }
     if(request!==loadSequence.current)return;
-    apiFetch(`/tasks/${id}/subtasks`,{query:{page:0,size:20}}).then(r=>{if(request===loadSequence.current){const rows=unwrapList<Subtask>(r);setSubtasks(rows);setMoreSubtasks(rows.length===20);setSubtaskPage(0);}}).catch(()=>{});
-    // Checklist/timelogs trả { data: [...] } thuần; comments/activity trả PageResponse.
-    apiFetch(`/tasks/${id}/checklist`)
-      .then((r) => {if(request===loadSequence.current)setChecklist(unwrapList<ChecklistItem>(r));})
-      .catch(() => {if(request===loadSequence.current)setChecklist([]);});
-    apiFetch(`/tasks/${id}/timelogs`)
-      .then((r) => setTimelogs(unwrapList<Timelog>(r)))
-      .catch(() => setTimelogs([]));
-    apiFetch(`/tasks/${id}/comments`)
-      .then((r) => setComments(unwrapList<CommentItem>(r)))
-      .catch(() => setComments([]));
-    apiFetch(`/tasks/${id}/activity`)
-      .then((r) => setTimeline(unwrapList<TimelineItem>(r)))
-      .catch(() => setTimeline([]));
+    async function readSection<T>(path: string, label: string, update: (items: T[]) => void, options?: ApiOptions) {
+      try {
+        const result = await apiFetch(`/tasks/${id}/${path}`, options);
+        if (request === loadSequence.current) update(unwrapList<T>(result));
+      } catch {
+        if (request !== loadSequence.current) return;
+        update([]);
+        setSectionErrors(errors => [...errors, label]);
+      }
+    }
+    void readSection<Subtask>("subtasks", t("task.subtasks"), rows => {
+      setSubtasks(rows);
+      setMoreSubtasks(rows.length === 20);
+      setSubtaskPage(0);
+    }, { query: { page: 0, size: 20 } });
+    void readSection("checklist", t("task.checklist"), setChecklist);
+    void readSection("timelogs", t("task.timelogs"), setTimelogs);
+    void readSection("comments", t("task.comments"), setComments);
+    void readSection("activity", t("task.timeline"), setTimeline);
   }, [id]);
   async function tick(item:ChecklistItem,done:boolean){if(!task||task.version==null||tickBusy)return;setTickBusy(true);setFormErr(null);loadSequence.current++;setChecklist(rows=>rows.map(row=>row.id===item.id?{...row,done}:row));try{await apiFetch(`/tasks/${id}/checklist/${item.id}`,{method:"PATCH",ifMatch:String(task.version),body:{done}});await load();}catch(e:any){setChecklist(rows=>rows.map(row=>row.id===item.id?{...row,done:item.done}:row));setFormErr(e.uiMessage??"Không cập nhật được danh sách kiểm tra");}finally{setTickBusy(false);}}
 
   useEffect(() => {
+    setSubtasks([]);
+    setChecklist([]);
+    setTimelogs([]);
+    setComments([]);
+    setTimeline([]);
+    setMoreSubtasks(false);
     void load();
+    return () => { loadSequence.current++; };
   }, [load]);
 
   // Realtime: task/activity/comment đổi -> refetch đúng scope qua API.
@@ -303,6 +318,10 @@ export default function TaskDetail() {
       <p className="card mt-3" role="note">Vai trò trong dự án: <strong>{roleLabel(access?.role)}</strong>. {access?.review?"Bạn quản lý việc, giao việc và xử lý kết quả chờ duyệt.":access?.execute?"Bạn thực hiện việc được giao: bắt đầu, đánh dấu danh sách kiểm tra, ghi thời gian và nộp hoàn thành.":"Bạn đang xem công việc; không được thay đổi tiến trình."}</p>
       {access?.metadata&&<ProjectTaskEditor id={String(id)} title={task.title} description={task.description} version={String(version)} dueAt={task.due_at} onChanged={()=>void load()}/>}
       <ErrorAlert message={formErr} />
+      <ErrorAlert
+        message={sectionErrors.length ? `Không tải được: ${sectionErrors.join(", ")}.` : null}
+        onRetry={() => void load()}
+      />
       {formOk && (
         <p role="status" className="mt-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">
           {formOk}

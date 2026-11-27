@@ -4,6 +4,7 @@ library;
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -115,6 +116,77 @@ class _MyTasksScreenState extends State<MyTasksScreen> {
         SnackBar(content: Text(err is ApiException ? err.envelope.code : 'Lỗi')),
       );
     }
+  }
+
+  Future<void> _manageRecurrence(_TaskItem task) async {
+    final api = context.read<SessionManager>().api;
+    final path = ApiPaths.meTaskRecurrence(task.id);
+    try {
+      final schedule = PageParser.parseObject(await api.get(path));
+      if (!mounted) return;
+      final active = schedule['interval_days'] != null && schedule['stopped_at'] == null;
+      final action = await showDialog<int>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Lịch lặp'),
+          content: Text(active
+              ? 'Kỳ tiếp theo: ${schedule['next_date']} (${schedule['timezone']})'
+              : task.dueAt == null ? 'Đặt hạn cho việc trước khi bật lặp.' : 'Chọn chu kỳ lặp.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Đóng')),
+            if (active)
+              TextButton(onPressed: () => Navigator.pop(context, 0), child: const Text('Dừng lặp')),
+            if (!active && task.dueAt != null) ...[
+              TextButton(onPressed: () => Navigator.pop(context, 1), child: const Text('Hằng ngày')),
+              TextButton(onPressed: () => Navigator.pop(context, 7), child: const Text('Hằng tuần')),
+            ],
+            if (!active && task.dueAt == null)
+              TextButton(onPressed: () => Navigator.pop(context, -1), child: const Text('Đặt ngày hạn')),
+          ],
+        ),
+      );
+      if (!mounted || action == null) return;
+      if (action == -1) {
+        await _setRecurrenceDeadline(task);
+        return;
+      }
+      await api.mutate(path, method: action == 0 ? 'DELETE' : 'PUT',
+          body: action == 0 ? null : {'intervalDays': action, 'version': task.version});
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã cập nhật lịch lặp.')));
+    } on DioException catch (e) {
+      if (!mounted) return;
+      final err = e.error;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(err is ApiException ? err.envelope.code : 'Không cập nhật được lịch lặp.')));
+    }
+  }
+
+  Future<void> _setRecurrenceDeadline(_TaskItem task) async {
+    final api = context.read<SessionManager>().api;
+    final now = DateTime.now();
+    final date = await showDatePicker(context: context, firstDate: now,
+        lastDate: DateTime(now.year + 10, 12, 31), initialDate: now);
+    if (date == null || !mounted) return;
+    final path = ApiPaths.meTask(task.id);
+    final detail = PageParser.parseObject(await api.get(path));
+    final latest = detail['task'] as Map<String, Object?>;
+    String timezone = 'UTC';
+    try {
+      timezone = (await FlutterTimezone.getLocalTimezone()).identifier;
+    } catch (_) {
+      // Use the same fallback as the calendar when the device zone is unavailable.
+    }
+    if (!mounted) return;
+    await api.mutate(path, method: 'PATCH', ifMatchVersion: (latest['version'] as num).toInt(),
+        body: {
+          'title': latest['title'], 'priority': latest['priority'],
+          'description': latest['description'], 'notes': latest['notes'],
+          'startAt': latest['startAt'],
+          'dueAt': '${date.toIso8601String().substring(0, 10)}T00:00:00Z',
+          'dueIsDateOnly': true, 'dueTimezone': timezone,
+        });
+    if (mounted) await _load();
   }
 
   Future<void> _create() async {
@@ -252,6 +324,11 @@ class _MyTasksScreenState extends State<MyTasksScreen> {
                                     '${_statusLabel(t.state)} • ${t.priority ?? 'MEDIUM'} • ${_dueLabel(t.dueAt)}',
                                   ),
                                   onTap: () => context.go('/tasks/${t.id}'),
+                                  trailing: IconButton(
+                                    tooltip: 'Quản lý lịch lặp',
+                                    onPressed: () => _manageRecurrence(t),
+                                    icon: const Icon(Icons.repeat),
+                                  ),
                                 );
                               },
                             ),

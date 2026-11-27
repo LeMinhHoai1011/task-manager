@@ -11,7 +11,7 @@ interface Notif {
   title?: string;
   read?: boolean;
 }
-const kindLabels:Record<string,string>={TASK_ASSIGNED:"Bạn được giao công việc",TASK_REASSIGNED:"Người phụ trách công việc đã thay đổi",TASK_DEADLINE_SET:"hạn hoàn thành công việc đã thay đổi",TASK_DEADLINE_SOON:"Công việc sắp đến hạn",TASK_DEADLINE_OVERDUE:"Công việc đã quá hạn",TASK_COMMENT_ADDED:"Có bình luận mới trong công việc",TASK_APPROVAL_SUBMITTED:"Có công việc được nộp duyệt",TASK_WORKFLOW_T_01:"Công việc đã bắt đầu",TASK_WORKFLOW_T_02:"Công việc đang chờ duyệt",TASK_WORKFLOW_T_03:"Công việc đã hoàn thành",TASK_WORKFLOW_T_04:"Công việc đã được duyệt",TASK_WORKFLOW_T_05:"Công việc cần chỉnh sửa",TASK_REMINDER_FIRE:"Đến giờ nhắc công việc",TEAM_MEMBER_ADDED:"Bạn đã được thêm hoặc cập nhật vai trò trong nhóm",WORKSPACE_INVITED:"Bạn có lời mời tham gia không gian làm việc"};
+const kindLabels:Record<string,string>={CHAT_MENTION:"Bạn được nhắc trong phòng chat dự án",TASK_ASSIGNED:"Bạn được giao công việc",TASK_REASSIGNED:"Người phụ trách công việc đã thay đổi",TASK_DEADLINE_SET:"hạn hoàn thành công việc đã thay đổi",TASK_DEADLINE_SOON:"Công việc sắp đến hạn",TASK_DEADLINE_OVERDUE:"Công việc đã quá hạn",TASK_COMMENT_ADDED:"Có bình luận mới trong công việc",TASK_APPROVAL_SUBMITTED:"Có công việc được nộp duyệt",TASK_WORKFLOW_T_01:"Công việc đã bắt đầu",TASK_WORKFLOW_T_02:"Công việc đang chờ duyệt",TASK_WORKFLOW_T_03:"Công việc đã hoàn thành",TASK_WORKFLOW_T_04:"Công việc đã được duyệt",TASK_WORKFLOW_T_05:"Công việc cần chỉnh sửa",TASK_REMINDER_FIRE:"Đến giờ nhắc công việc",TEAM_MEMBER_ADDED:"Bạn đã được thêm hoặc cập nhật vai trò trong nhóm",WORKSPACE_INVITED:"Bạn có lời mời tham gia không gian làm việc"};
 
 interface QuietPrefs {
   quiet_hours_enabled: boolean;
@@ -32,9 +32,9 @@ function isHHMM(s: string): boolean {
  */
 export default function Notifications() {
   const navigate=useNavigate();
-  async function openTask(id:string) {
+  async function openTarget(id:string) {
     try {const result=await apiFetch<{data:{path:string}}>(`/notifications/${id}/target`);await markRead(id);navigate(result.data.path);}
-    catch {setErr("Bạn không còn quyền mở công việc hoặc thông báo không có đích hợp lệ.");}
+    catch {setErr("Bạn không còn quyền mở liên kết hoặc thông báo không có đích hợp lệ.");}
   }
   const [items, setItems] = useState<Notif[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -227,7 +227,7 @@ export default function Notifications() {
                 {n.read ? "Đã đọc" : "Chưa đọc"}
               </span>
               <span className="flex-1 text-slate-800">{n.title ?? kindLabels[n.kind??""] ?? n.kind ?? n.id}</span>
-              {(n.kind??"").startsWith("TASK_") && <Button variant="ghost" size="sm" onClick={()=>void openTask(n.id)}>Mở công việc</Button>}
+              {((n.kind??"").startsWith("TASK_")||n.kind==="CHAT_MENTION") && <Button variant="ghost" size="sm" onClick={()=>void openTarget(n.id)}>{n.kind==="CHAT_MENTION"?"Mở trò chuyện":"Mở công việc"}</Button>}
               {!n.read && (
                 <Button variant="ghost" size="sm" onClick={() => void markRead(n.id)}>
                   {t("notifications.mark_read")}

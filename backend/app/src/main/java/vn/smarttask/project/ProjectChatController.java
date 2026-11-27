@@ -34,10 +34,30 @@ public class ProjectChatController {
   }
   @PostMapping("/messages")
   public ApiResult<?> send(@PathVariable UUID projectId,@RequestBody Map<String,Object> body) {
-    fields(body,"client_message_id","body","linked_task_id");
+    fields(body,"client_message_id","body","linked_task_id","reply_to_id");
     if(!(body.get("body") instanceof String text))throw AppException.badRequest("CHAT_INVALID","Text required");
     return ApiResult.ok(chat.send(CurrentActor.userId(),projectId,new ProjectChatService.Send(
-        uuid(body.get("client_message_id"),true),text,uuid(body.get("linked_task_id"),false))),"chat.sent");
+        uuid(body.get("client_message_id"),true),text,uuid(body.get("linked_task_id"),false),
+        uuid(body.get("reply_to_id"),false))),"chat.sent");
+  }
+  @GetMapping("/messages/{messageId}")
+  public ApiResult<?> message(@PathVariable UUID projectId,@PathVariable UUID messageId) {
+    return ApiResult.ok(chat.message(CurrentActor.userId(),projectId,messageId),"chat.messages");
+  }
+  @GetMapping("/chat/search")
+  public ApiResult<?> search(@PathVariable UUID projectId,@RequestParam String q,@RequestParam(required=false) Long before) {
+    return ApiResult.ok(chat.search(CurrentActor.userId(),projectId,q,before),"chat.messages");
+  }
+  @GetMapping("/chat/pinned")
+  public ApiResult<?> pinned(@PathVariable UUID projectId) {
+    return ApiResult.ok(chat.pinned(CurrentActor.userId(),projectId).map(List::of).orElseGet(List::of),"chat.messages");
+  }
+  @PutMapping("/messages/{messageId}/pin")
+  public ApiResult<?> pin(@PathVariable UUID projectId,@PathVariable UUID messageId,@RequestBody Map<String,Object> body) {
+    fields(body,"pinned");
+    if(!(body.get("pinned") instanceof Boolean pinned))throw AppException.badRequest("CHAT_INVALID","Pin state required");
+    chat.pin(CurrentActor.userId(),projectId,messageId,pinned);
+    return ApiResult.ok(null,"chat.messages");
   }
   @DeleteMapping("/messages/{messageId}")
   public ApiResult<?> delete(@PathVariable UUID projectId,@PathVariable UUID messageId,

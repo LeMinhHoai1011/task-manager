@@ -129,6 +129,14 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen>
     return Scaffold(
       appBar: AppBar(
         title: Text(name),
+        actions: [
+          TextButton.icon(
+            label: const Text('Trò chuyện'),
+            icon: const Icon(Icons.chat_bubble_outline),
+            onPressed: () => context.push('/projects/${widget.projectId}/chat',
+                extra: _project['name']?.toString()),
+          ),
+        ],
         bottom: TabBar(
           controller: _tabCtrl,
           isScrollable: true,

@@ -90,21 +90,32 @@ public class ReportController {
       @RequestHeader(value = "Idempotency-Key", required = false) String idem) {
     requireIdem(idem);
     UUID actor = CurrentActor.userId();
-    if ("PROJECT".equals(String.valueOf(body.getOrDefault("scope_type", "PROJECT")))
-        && body.get("scope_id") != null) {
-      policy.requireProjectRead(actor, UUID.fromString((String) body.get("scope_id")));
+    String reportCode, scopeType, format;
+    UUID scopeId;
+    LocalDate from, to;
+    LocalDate today = LocalDate.now();
+    try {
+      reportCode = (String) body.get("report_code");
+      scopeType = (String) body.getOrDefault("scope_type", "PROJECT");
+      format = (String) body.getOrDefault("format", "CSV");
+      scopeId = body.get("scope_id") == null ? null : UUID.fromString((String) body.get("scope_id"));
+      from = body.get("period_from") == null ? today.minusDays(30)
+          : LocalDate.parse((String) body.get("period_from"));
+      to = body.get("period_to") == null ? today : LocalDate.parse((String) body.get("period_to"));
+    } catch (ClassCastException | IllegalArgumentException | java.time.format.DateTimeParseException ex) {
+      throw AppException.badRequest("EXPORT_INVALID", "Invalid export fields");
     }
-    if (body.get("report_code") != null
-        && MetricDictionary.isBanned((String) body.get("report_code"))) {
+    if (scopeType == null || format == null || from.isAfter(to)) {
+      throw AppException.badRequest("EXPORT_INVALID", "Invalid export fields");
+    }
+    if ("PROJECT".equals(scopeType) && scopeId != null) {
+      policy.requireProjectRead(actor, scopeId);
+    }
+    if (reportCode != null && MetricDictionary.isBanned(reportCode)) {
       throw AppException.forbidden("Individual ranking exports are forbidden (R-07)");
     }
-    var job = reports.requestExport(actor, (String) body.get("report_code"),
-        (String) body.getOrDefault("scope_type", "PROJECT"),
-        body.get("scope_id") == null ? null : UUID.fromString((String) body.get("scope_id")),
-        body.get("period_from") == null ? LocalDate.now().minusDays(30)
-            : LocalDate.parse((String) body.get("period_from")),
-        body.get("period_to") == null ? LocalDate.now() : LocalDate.parse((String) body.get("period_to")),
-        ((String) body.getOrDefault("format", "CSV")).toUpperCase(), idem);
+    var job = reports.requestExport(actor, reportCode, scopeType, scopeId, from, to,
+        format.toUpperCase(java.util.Locale.ROOT), idem);
     return ResponseEntity.ok(ApiResult.ok(
         Map.of("export_job_id", job.getId().toString(), "status", job.getStatus()),
         "report.export.request.success"));

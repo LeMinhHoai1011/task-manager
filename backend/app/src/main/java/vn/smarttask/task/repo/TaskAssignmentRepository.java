@@ -26,6 +26,18 @@ public interface TaskAssignmentRepository extends JpaRepository<TaskAssignment, 
       + "where a.taskId in :ids and a.status = 'ACTIVE' group by a.taskId")
   List<TaskAssignCount> countActiveByTaskIds(@Param("ids") java.util.Collection<UUID> taskIds);
 
+  @Query(value = """
+      select a.task_id as "taskId", u.display_name as "displayName"
+      from task_assignment a join app_user u on u.id=a.user_id
+      where a.task_id in (:ids) and a.status='ACTIVE' and a.is_primary
+      """, nativeQuery = true)
+  List<PrimaryAssignee> primaryNames(@Param("ids") java.util.Collection<UUID> taskIds);
+
+  interface PrimaryAssignee {
+    UUID getTaskId();
+    String getDisplayName();
+  }
+
   interface TaskAssignCount {
     UUID getTaskId();
     long getCnt();

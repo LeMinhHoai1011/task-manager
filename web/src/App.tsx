@@ -12,6 +12,7 @@ import Projects from "./pages/Projects";
 import ProjectDetail from "./pages/ProjectDetail";
 import Tasks from "./pages/Tasks";
 import MyTasks from "./pages/MyTasks";
+import { PersonalTaskRoute } from "./pages/PersonalChecklist";
 import Notes from "./pages/Notes";
 import Teams from "./pages/Teams";
 import ProjectRoles from "./pages/ProjectRoles";
@@ -30,6 +31,7 @@ import { ENABLE_AI } from "./config";
 import { RealtimeProvider } from "./realtime/RealtimeContext";
 import { ThemeProvider } from "./components/ThemeContext";
 import {ChatDraftProvider} from "./chat/ChatDraftContext";
+import {ProjectChatRoom} from "./chat/ProjectChat";
 
 const router=createBrowserRouter([{path:"*",element:<AppRoutes/>}]);
 
@@ -63,8 +65,10 @@ function AppRoutes(){return (
                       <Route path="/workspaces" element={<Workspaces />} />
                       <Route path="/projects" element={<Projects />} />
                       <Route path="/projects/:id" element={<ProjectDetail />} />
+                      <Route path="/projects/:id/chat" element={<ProjectChatRoom />} />
                       <Route path="/tasks" element={<Tasks />} />
                       <Route path="/my-tasks" element={<MyTasks />} />
+                      <Route path="/my-tasks/:id" element={<PersonalTaskRoute />} />
                       <Route path="/notes" element={<Notes />} />
                       <Route path="/teams" element={<Teams />} />
                       <Route path="/roles" element={<RequireProjectManager><ProjectRoles /></RequireProjectManager>} />

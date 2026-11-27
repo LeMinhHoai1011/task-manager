@@ -2,8 +2,8 @@ import {createContext,useCallback,useContext,useEffect,useRef,useState,type Reac
 import {useAuth} from "../auth/AuthContext";
 import {useAccess} from "../auth/AccessContext";
 
-export type PendingMessage={clientId:string;body:string;taskId:string;status:"sending"|"failed";error?:string};
-type Draft={body:string;taskId:string;pending:PendingMessage[];retry?:Pick<PendingMessage,"clientId"|"body"|"taskId">};
+export type PendingMessage={clientId:string;body:string;taskId:string;replyId?:string;status:"sending"|"failed";error?:string};
+type Draft={body:string;taskId:string;reply?:{id:string;body:string|null};pending:PendingMessage[];retry?:Pick<PendingMessage,"clientId"|"body"|"taskId"|"replyId">};
 const empty:Draft={body:"",taskId:"",pending:[]};
 type Store={owner:string;drafts:Record<string,Draft>};
 const Context=createContext<{drafts:Record<string,Draft>;update:(project:string,change:(draft:Draft)=>Draft)=>void}|null>(null);

@@ -3,7 +3,7 @@ import {apiFetch,unwrapData} from "../api/client";
 import {useRealtimeEvent,useRealtimeStatus} from "../realtime/RealtimeContext";
 import {useAuth} from "../auth/AuthContext";
 
-export type ChatMessage={id:string;seq:number;changed_seq:number;sender_id:string;sender_name:string;sender_username:string;client_message_id:string;body:string|null;deleted:boolean;created_at:string;linked_task:{id:string;title:string;state:string}|null;task_unavailable:boolean};
+export type ChatMessage={id:string;seq:number;changed_seq:number;sender_id:string;sender_name:string;sender_username:string;client_message_id:string;body:string|null;deleted:boolean;created_at:string;linked_task:{id:string;title:string;state:string}|null;task_unavailable:boolean;reply_to?:{id:string;body:string|null};pinned?:boolean};
 export type ChatAccess={read:boolean;write:boolean;moderate:boolean;reason?:string};
 type Unread={count:number;last_read_seq:number};
 type Page={items:ChatMessage[];revision:number;next_before:number|null;next_after:number|null;has_more:boolean;access:ChatAccess;unread:Unread};

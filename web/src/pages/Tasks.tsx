@@ -1,3 +1,4 @@
+import {attentionFilters} from "../components/ProjectAttention";
 import {formatDate} from "../i18n/labels";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
@@ -27,6 +28,8 @@ interface TaskRow {
   project_id?: string;
   blocked?: boolean;
   blocked_flag?: boolean;
+  blocked_reason?: string;
+  primary_assignee_name?: string;
   deadline?: string | null;
   due_at?: string | null;
   version?: number;
@@ -37,7 +40,11 @@ interface TaskRow {
 export default function Tasks() {
   const [params] = useSearchParams();
   const access=useAccess();
+  const requestedAttention = params.get("attention") ?? "";
+  const [attention, setAttention] = useState(() => Object.prototype.hasOwnProperty.call(attentionFilters, requestedAttention) ? requestedAttention : "");
   const [state, setState] = useState("");
+  const [query, setQuery] = useState(() => params.get("q") ?? "");
+  const [search, setSearch] = useState(query.trim());
   const [priority, setPriority] = useState("");
   const [project, setProject] = useState(() => params.get("project") ?? params.get("project_id") ?? "");
   const [assignee, setAssignee] = useState("");
@@ -78,9 +85,11 @@ export default function Tasks() {
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
 
   // Quick detail drawer
-  const resetFilters=()=>{setState("");setPriority("");setProject("");setAssignee("");setTag("");setBlocked("");setDepth("");setOverdue("");setSort("created_at");setOrder("desc");};
+  const resetFilters=()=>{setQuery("");setSearch("");setState("");setPriority("");setProject("");setAssignee("");setAttention("");setTag("");setBlocked("");setDepth("");setOverdue("");setSort("created_at");setOrder("desc");};
   const filters=[
-    ...(project?[{key:"project",label:`Dự án: ${access.projects.find(p=>p.id===project)?.name??"Đang chọn"}`,onRemove:()=>{setProject("");setAssignee("");}}]:[]),
+    ...(attention?[{key:"attention",label:attentionFilters[attention as keyof typeof attentionFilters],onRemove:()=>setAttention("")}]:[]),
+    ...(search?[{key:"q",label:`Tìm kiếm: ${search}`,onRemove:()=>{setQuery("");setSearch("");}}]:[]),
+    ...(project?[{key:"project",label:`Dự án: ${access.projects.find(p=>p.id===project)?.name??"Đang chọn"}`,onRemove:()=>{setProject("");setAssignee("");setAttention("");}}]:[]),
     ...(state?[{key:"state",label:`Trạng thái: ${stateLabel(state)}`,onRemove:()=>setState("")}]:[]),
     ...(assignee?[{key:"assignee",label:assignee===user?.id?"Giao cho tôi":"Người phụ trách đã chọn",onRemove:()=>setAssignee("")}]:[]),
     ...(priority?[{key:"priority",label:`Ưu tiên: ${priorityLabel(priority)}`,onRemove:()=>setPriority("")}]:[]),
@@ -109,7 +118,6 @@ export default function Tasks() {
       return;
     }
 
-    const previous = items;
     setMoving(true);
     setErr(null);
     setItems((rows) => rows.map((row) => (row.id === id ? { ...row, state: target } : row)));
@@ -127,12 +135,30 @@ export default function Tasks() {
       if (!result) throw new Error("Missing workflow result");
       setItems((rows) =>
         rows.map((row) =>
-          row.id === id ? { ...row, state: result.to_state, version: result.version } : row
+          row.id === id && row.version === task.version
+            ? { ...row, state: result.to_state, version: result.version }
+            : row
         )
       );
     } catch (e: any) {
-      setItems(previous);
+      setItems((rows) => rows.map((row) =>
+        row.id === id && row.version === task.version && row.state === target
+          ? task
+          : row
+      ));
       setErr(e.uiMessage ?? "Không thể chuyển trạng thái. Dữ liệu đã được khôi phục.");
+      if (e.code === "VERSION_CONFLICT" || e.reasonCode === "VERSION_CONFLICT" || e.status === 412) {
+        try {
+          const latest = unwrapData<TaskRow>(await apiFetch(`/tasks/${id}`));
+          if (!latest) throw new Error("Missing task detail");
+          setItems((rows) => rows.map((row) =>
+            row.id === id && row.version === task.version ? latest : row
+          ));
+          setErr("Công việc đã thay đổi. Bảng đã cập nhật trạng thái mới nhất.");
+        } catch {
+          setErr("Công việc đã thay đổi. Hãy tải lại bảng trước khi thử lại.");
+        }
+      }
     } finally {
       setMoving(false);
       setDraggedTaskId(null);
@@ -146,6 +172,7 @@ export default function Tasks() {
       try {
         const r = await apiFetch("/tasks", {
           query: {
+            q: search || undefined,
             state: state || undefined,
             priority: priority || undefined,
             project_id: project || undefined,
@@ -154,6 +181,7 @@ export default function Tasks() {
             blocked: blocked || undefined,
             depth: depth || undefined,
             overdue: overdue || undefined,
+            attention: attention || undefined,
             sort: (SORT_ALLOW as readonly string[]).includes(sort) ? sort : "created_at",
             order,
             cursor: c || undefined,
@@ -168,7 +196,7 @@ export default function Tasks() {
         setLoading(false);
       }
     },
-    [state, priority, project, assignee, tag, blocked, depth, overdue, sort, order]
+    [search, state, priority, project, assignee, tag, blocked, depth, overdue, attention, sort, order]
   );
 
   useRealtimeEvent(["task", "workflow"], () => {
@@ -232,6 +260,10 @@ export default function Tasks() {
         <label>Sắp xếp theo<Select aria-label="Sắp xếp theo" value={sort} onChange={e=>setSort(e.target.value as SortKey)}>{SORT_ALLOW.map(s=><option key={s} value={s}>{{created_at:"Ngày tạo",updated_at:"Cập nhật gần đây",due_at:"Hạn hoàn thành",priority:"Độ ưu tiên"}[s]}</option>)}</Select></label>
         <label>Thứ tự<Select aria-label="Thứ tự sắp xếp" value={order} onChange={e=>setOrder(e.target.value as "asc"|"desc")}><option value="asc">Tăng dần</option><option value="desc">Giảm dần</option></Select></label>
       </>}>
+        <form className="flex items-end gap-2" onSubmit={event=>{event.preventDefault();setSearch(query.trim());}}>
+          <label>Tìm công việc<TextInput value={query} onChange={event=>setQuery(event.target.value)}/></label>
+          <Button type="submit" variant="secondary">Tìm</Button>
+        </form>
         <ResourcePicker kind="projects" label="Dự án" value={project} onChange={value=>{setProject(value);setAssignee("");}} selectedName={access.projects.find(p=>p.id===project)?.name}/>
         <label className="filter-field">Trạng thái<Select aria-label={t("tasks.filter_state")} value={state} onChange={e=>setState(e.target.value)}><option value="">Tất cả trạng thái</option>{STATE_OPTIONS.map(s=><option key={s} value={s}>{stateLabel(s)}</option>)}</Select></label>
         <MemberPicker projectIds={project?[project]:access.projects.map(p=>p.id)} label="Người phụ trách" value={assignee} onChange={setAssignee}/>
@@ -295,6 +327,9 @@ export default function Tasks() {
                       >
                         {it.title}
                       </Link>
+                      {attention && <p className="text-xs">
+                        {it.primary_assignee_name ? `Phụ trách chính: ${it.primary_assignee_name}` : "Chưa có người phụ trách chính"}
+                      </p>}
                     </td>
                     <td className="p-3.5">
                       <Badge state={it.state}>{stateLabel(it.state)}</Badge>
@@ -304,7 +339,7 @@ export default function Tasks() {
                     </td>
                     <td className="p-3.5">
                       {blockedTask ? (
-                        <Badge state="BLOCKED">{t("task.blocked")}</Badge>
+                        <div><Badge state="BLOCKED">{t("task.blocked")}</Badge>{it.blocked_reason && <p>{it.blocked_reason}</p>}</div>
                       ) : (
                         "—"
                       )}

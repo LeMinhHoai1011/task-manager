@@ -18,6 +18,9 @@ import vn.smarttask.reports.service.ExportWorker;
 public class WorkerSchedulers {
   @org.springframework.beans.factory.annotation.Autowired private vn.smarttask.calendar.service.ReminderDispatcher reminders;
   @org.springframework.beans.factory.annotation.Autowired private vn.smarttask.notify.service.NotificationService notificationService;
+  @org.springframework.beans.factory.annotation.Autowired private vn.smarttask.task.service.PersonalTaskRecurrenceService personalRecurrences;
+  @Scheduled(fixedDelay=30000)
+  public void generatePersonalRecurrences(){personalRecurrences.generateDue();}
   @Scheduled(fixedDelay=30000)
   public void releaseQuietHours(){notificationService.releaseDeferred();}
   @Scheduled(fixedDelay=30000)

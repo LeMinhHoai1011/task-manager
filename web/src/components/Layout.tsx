@@ -18,11 +18,12 @@ export default function Layout({ children }: { children: ReactNode }) {
   const access=useAccess();
   const nav = useNavigate();
   const location = useLocation();
-  const projectContext = /^\/projects\/([^/]+)$/.exec(location.pathname)?.[1]
+  const projectContext = /^\/projects\/([^/]+)(?:\/chat)?$/.exec(location.pathname)?.[1]
     || (location.pathname==="/tasks" ? new URLSearchParams(location.search).get("project_id") || new URLSearchParams(location.search).get("project") : null);
   const { theme, toggleTheme } = useTheme();
 
   const [menuOpen, setMenuOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [quickCreateOpen, setQuickCreateOpen] = useState(false);
@@ -82,7 +83,9 @@ export default function Layout({ children }: { children: ReactNode }) {
     "/admin": "Quản lý tài khoản",
   };
 
-  const title = location.pathname.startsWith("/tasks/")
+  const title = /^\/projects\/[^/]+\/chat$/.test(location.pathname)
+    ? "Chat dự án"
+    : (location.pathname.startsWith("/tasks/") || location.pathname.startsWith("/my-tasks/"))
     ? "Chi tiết công việc"
     : location.pathname.startsWith("/projects/")
     ? "Chi tiết dự án"
@@ -92,6 +95,7 @@ export default function Layout({ children }: { children: ReactNode }) {
     <NavLink
       to={to}
       title={label}
+      aria-label={label}
       className={({ isActive }) => `nav-link ${isActive ? "nav-link-active" : ""}`}
     >
       <AppIcon name={icon} />
@@ -118,9 +122,9 @@ export default function Layout({ children }: { children: ReactNode }) {
       <nav
         id="main-navigation"
         aria-label="Điều hướng chính"
-        className={`side app-sidebar ${menuOpen ? "is-open" : ""}`}
+        className={`side app-sidebar ${menuOpen ? "is-open" : ""}${sidebarCollapsed ? " is-collapsed" : ""}`}
       >
-        <NavLink to={profile.home} className="brand">
+        <NavLink to={profile.home} className="brand" aria-label="SmartTask">
           <span className="brand-mark">
             <AppIcon name="tasks" size={22} />
           </span>
@@ -129,7 +133,7 @@ export default function Layout({ children }: { children: ReactNode }) {
           </span>
         </NavLink>
 
-        <div className="px-3 py-3 text-sm" aria-label="Vai trò hiện tại"><strong>{access.loading?"Đang tải vai trò…":profile.label}</strong></div>
+        <div className="sidebar-role px-3 py-3 text-sm" aria-label="Vai trò hiện tại"><strong>{access.loading?"Đang tải vai trò…":profile.label}</strong></div>
         <p className="nav-group-label">Không gian cá nhân</p>
         {link("/dashboard", "Tổng quan", "overview")}
         {link("/my-tasks", "Việc của tôi", "personal")}
@@ -167,7 +171,9 @@ export default function Layout({ children }: { children: ReactNode }) {
         <div className="mt-auto border-t border-slate-200 pt-3">
           <RealtimeIndicator />
           <button
-            className="btn btn-ghost mt-2 w-full justify-start text-xs"
+            className="sidebar-logout btn btn-ghost mt-2 w-full justify-start text-xs"
+            aria-label={t("auth.logout")}
+            title={t("auth.logout")}
             onClick={async () => {
               await auth.logout();
               nav("/login");
@@ -184,6 +190,17 @@ export default function Layout({ children }: { children: ReactNode }) {
         {/* Topbar */}
         <header className="app-header dark:bg-slate-900 dark:border-slate-800 transition-colors">
           <div className="header-location flex min-w-0 flex-1 items-center gap-2">
+            <button
+              type="button"
+              className="desktop-sidebar-toggle btn btn-ghost"
+              aria-label={sidebarCollapsed ? "Mở rộng thanh điều hướng" : "Thu gọn thanh điều hướng"}
+              title={sidebarCollapsed ? "Mở rộng thanh điều hướng" : "Thu gọn thanh điều hướng"}
+              aria-expanded={!sidebarCollapsed}
+              aria-controls="main-navigation"
+              onClick={() => setSidebarCollapsed(value => !value)}
+            >
+              <AppIcon name={sidebarCollapsed ? "chevron-right" : "chevron-left"} />
+            </button>
             <button
               className="mobile-menu"
               aria-label={menuOpen ? "Đóng menu" : "Mở menu"}

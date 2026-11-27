@@ -21,6 +21,7 @@ export default function GlobalSearchModal({
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
@@ -35,56 +36,54 @@ export default function GlobalSearchModal({
   }, [open]);
 
   useEffect(() => {
+    setLoading(false);
+    setError(false);
+    setResults([]);
     if (!query.trim() || !open) {
-      setResults([]);
       return;
     }
 
+    const controller = new AbortController();
     const timer = setTimeout(async () => {
       setLoading(true);
       try {
         const q = query.trim().toLowerCase();
         const items: SearchResult[] = [];
 
-        // 1. Search Tasks
         try {
-          const taskRes = await apiFetch<any>(`/tasks?limit=10`);
+          const taskRes = await apiFetch<any>("/tasks", {query:{q, limit:8}, signal:controller.signal});
           const taskItems = (taskRes?.items || taskRes?.data?.items || taskRes || []) as any[];
           for (const t of taskItems) {
-            if (t.title?.toLowerCase().includes(q) || t.description?.toLowerCase().includes(q)) {
-              items.push({
-                id: t.id,
-                type: "task",
-                title: t.title,
-                subtitle: `Công việc • ${t.state ?? "TODO"} • ${t.priority ?? "MEDIUM"}`,
-                url: `/tasks/${t.id}`,
-              });
-            }
+            items.push({
+              id: t.id,
+              type: "task",
+              title: t.title,
+              subtitle: `Công việc • ${t.state ?? "TODO"} • ${t.priority ?? "MEDIUM"}`,
+              url: `/tasks/${t.id}`,
+            });
           }
-        } catch {}
+        } catch { if (!controller.signal.aborted) setError(true); }
 
-        // 2. Search Projects
+        if (controller.signal.aborted) return;
         try {
-          const projRes = await apiFetch<any>(`/projects?limit=10`);
+          const projRes = await apiFetch<any>("/projects", {query:{q, limit:8}, signal:controller.signal});
           const projItems = (projRes?.items || projRes?.data?.items || projRes || []) as any[];
           for (const p of projItems) {
-            if (p.name?.toLowerCase().includes(q) || p.description?.toLowerCase().includes(q)) {
-              items.push({
-                id: p.id,
-                type: "project",
-                title: p.name,
-                subtitle: `Dự án • ${p.status ?? "PLANNING"}`,
-                url: `/projects?id=${p.id}`,
-              });
-            }
+            items.push({
+              id: p.id,
+              type: "project",
+              title: p.name,
+              subtitle: `Dự án • ${p.status ?? "PLANNING"}`,
+              url: `/projects/${p.id}`,
+            });
           }
-        } catch {}
+        } catch { if (!controller.signal.aborted) setError(true); }
 
-        // 3. Search Notes
+        if (controller.signal.aborted) return;
         try {
-          const noteRes = await apiFetch<any>(`/notes?search=${encodeURIComponent(q)}`);
+          const noteRes = await apiFetch<any>("/notes", {query:{search:q}, signal:controller.signal});
           const noteItems = (noteRes?.data || noteRes || []) as any[];
-          for (const n of noteItems) {
+          for (const n of noteItems.slice(0, 8)) {
             items.push({
               id: n.id,
               type: "note",
@@ -93,16 +92,20 @@ export default function GlobalSearchModal({
               url: `/notes?id=${n.id}`,
             });
           }
-        } catch {}
+        } catch { if (!controller.signal.aborted) setError(true); }
 
-        setResults(items.slice(0, 8));
+        if (controller.signal.aborted) return;
+        setResults(items);
         setSelectedIndex(0);
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     }, 250);
 
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
   }, [query, open]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -149,7 +152,8 @@ export default function GlobalSearchModal({
         </div>
 
         <div className="max-h-80 overflow-y-auto p-2">
-          {query.trim() && results.length === 0 && !loading && (
+          {error && <p role="alert" className="p-3 text-sm">Không tải được một số kết quả tìm kiếm.</p>}
+          {query.trim() && results.length === 0 && !loading && !error && (
             <div className="p-6 text-center text-sm text-slate-500">
               Không tìm thấy kết quả phù hợp cho "{query}"
             </div>

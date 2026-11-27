@@ -1,12 +1,34 @@
 // Test ApiClient: headers bat buoc, parse envelope loi backend-shape +
 // fallback legacy, PageParser canonical + fallback legacy.
+import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:smarttask_mobile/api/client.dart';
+import 'package:smarttask_mobile/api/endpoints.dart';
 
 import 'fake_backend.dart';
 
 void main() {
   group('ApiClient headers', () {
+    test('sends file bytes to the authenticated multipart staging route', () async {
+      final path = ApiPaths.fileUploadContent('session-1');
+      final backend = FakeBackend()
+        ..when('POST', path, const FakeRoute(200, {'data': {}}));
+      await backend.newClient().mutate(
+        path,
+        method: 'POST',
+        body: FormData.fromMap({
+          'file': MultipartFile.fromBytes([1, 2, 3], filename: 'test.png'),
+        }),
+        idempotencyKey: 'stage-1',
+      );
+      final request = backend.lastRequestFor('POST', path)!;
+      expect(request.headers['Idempotency-Key'], 'stage-1');
+      expect(request.contentType, startsWith('multipart/form-data;'));
+      final form = request.data as FormData;
+      expect(form.files.single.key, 'file');
+      expect(form.files.single.value.length, 3);
+    });
+
     test('gui Authorization + X-Correlation-Id + X-Client-Type', () async {
       final backend = FakeBackend()
         ..when('GET', '/workspaces', const FakeRoute(200, {'data': []}));

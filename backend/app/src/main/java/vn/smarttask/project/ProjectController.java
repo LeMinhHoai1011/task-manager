@@ -75,6 +75,7 @@ public class ProjectController {
   public ResponseEntity<ApiResult<PageResponse<ProjectDto>>> listProjects(
       @RequestParam(required = false) UUID workspaceId,
       @RequestParam(required = false, name = "workspace_id") UUID workspaceIdAlias,
+      @RequestParam(required = false) String q,
       @RequestParam(required = false) String cursor,
       @RequestParam(required = false, defaultValue = "20") int limit) {
     UUID actor = CurrentActor.userId();
@@ -84,6 +85,13 @@ public class ProjectController {
     }
     int pageSize = Math.min(Math.max(limit, 1), 100);
     var all = projects.listForUser(actor, ws);
+    if (q != null && !q.isBlank()) {
+      String text = q.strip().toLowerCase(java.util.Locale.ROOT);
+      all = all.stream().filter(project ->
+          project.getName().toLowerCase(java.util.Locale.ROOT).contains(text)
+              || project.getDescription() != null
+              && project.getDescription().toLowerCase(java.util.Locale.ROOT).contains(text)).toList();
+    }
     int start = 0;
     if (cursor != null && !cursor.isBlank()) {
       for (int i = 0; i < all.size(); i++) {

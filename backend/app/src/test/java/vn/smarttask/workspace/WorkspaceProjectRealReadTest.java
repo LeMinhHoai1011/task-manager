@@ -132,9 +132,13 @@ class WorkspaceProjectRealReadTest {
             "MEMBER")));
     when(projectMembers.findMembership(p2, actor)).thenReturn(Optional.empty());
 
-    var res = projectController.listProjects(wsId, null, null, 20);
+    var res = projectController.listProjects(wsId, null, null, null, 20);
     assertEquals(1, res.getBody().data().data().size());
     assertEquals(p1, res.getBody().data().data().get(0).id());
+    assertEquals(1, projectController.listProjects(wsId, null, "A", null, 1)
+        .getBody().data().data().size());
+    assertEquals(0, projectController.listProjects(wsId, null, "B", null, 1)
+        .getBody().data().data().size());
   }
 
   @Test
@@ -164,7 +168,7 @@ class WorkspaceProjectRealReadTest {
     doThrow(AppException.notFound("Workspace not found"))
         .when(policy).requireWorkspaceRead(actor, wsId);
     AppException ex = assertThrows(AppException.class,
-        () -> projectController.listProjects(wsId, null, null, 20));
+        () -> projectController.listProjects(wsId, null, null, null, 20));
     assertEquals(404, ex.getHttpStatus().value());
   }
 

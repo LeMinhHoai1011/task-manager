@@ -45,6 +45,8 @@ abstract final class ApiPaths {
   static String taskComments(String taskId) => '/tasks/$taskId/comments';
   // PH-3 files: upload_session -> staging -> commit; gateway tickets single-use TTL 30s.
   static const fileUploadInit = '/files/upload';
+  static String fileUploadContent(String sessionId) =>
+      '/files/upload/$sessionId/content';
   static String fileUploadComplete(String sessionId) =>
       '/files/upload/$sessionId/complete';
   static String fileUploadCommit(String sessionId) =>
@@ -87,6 +89,7 @@ abstract final class ApiPaths {
   // Personal tasks (me/tasks)
   static const meTasks = '/me/tasks';
   static String meTask(String id) => '/me/tasks/$id';
+  static String meTaskRecurrence(String id) => '/me/task-recurrences/$id';
   static String meTaskStart(String id) => '/me/tasks/$id/start';
   static String meTaskCompletion(String id) => '/me/tasks/$id/completion';
   static const meTasksSummary = '/me/tasks/summary';

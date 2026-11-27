@@ -18,6 +18,28 @@ class TaskAuditRegressionIT extends ItgBase {
     var project=mkActiveProject(user.getId(),mkWorkspace(user.getId(),"auditfix"),"auditfix");
     return new Fixture(user.getId(),project.getId(),loginToken(user.getUsername(),"AuditPass123!"));
   }
+  @Test void attentionCountsFollowTheSameVisibilityAndPrimaryAssignmentAsRows() throws Exception {
+    var f = fixture();
+    var unassigned = mkTask(f.actor(), f.project(), "Needs primary");
+    var assigned = mkTask(f.actor(), f.project(), "Has primary");
+    tasks.assign(f.actor(), assigned.getId(), f.actor(), assigned.getVersion());
+    jdbc.update("update task_assignment set is_primary=true where task_id=? and user_id=?", assigned.getId(), f.actor());
+    jdbc.update("update task set blocked_flag=true,blocked_reason='Waiting for input' where id=?", assigned.getId());
+    jdbc.update("update task set due_at=now()+interval '2 days' where id in (?,?)", assigned.getId(), unassigned.getId());
+
+    var base = "/api/v1/tasks?project_id=" + f.project() + "&attention=";
+    var result = json(doGet(base + "unassigned&limit=1", f.token())).path("data");
+    assertEquals(1, result.path("total").asInt());
+    assertEquals(unassigned.getId().toString(), result.path("items").get(0).path("id").asText());
+    var blocked = json(doGet(base + "blocked", f.token())).path("data").path("items").get(0);
+    assertEquals("Waiting for input", blocked.path("blocked_reason").asText());
+    assertFalse(blocked.path("primary_assignee_name").asText().isBlank());
+
+    var today = json(doGet("/api/v1/dashboard/today?bucket=upcoming", f.token())).path("data").path("items");
+    assertEquals(1, today.size());
+    assertEquals(assigned.getId().toString(), today.get(0).path("id").asText());
+    assertEquals("PRIMARY", today.get(0).path("responsibility").asText());
+  }
   void waitForTwoLocks() throws Exception {
     for(int n=0;n<200;n++) {
       if(jdbc.queryForObject("select count(*) from pg_stat_activity where datname=current_database() and wait_event_type='Lock'",Integer.class)>=2)return;
@@ -90,5 +112,17 @@ class TaskAuditRegressionIT extends ItgBase {
     stats.clear();doGet(path,f.token());long after=stats.getPrepareStatementCount();
     assertEquals(before,after,"SQL query count must be independent of total tasks");
     assertTrue(after<20,"Unexpected query count: "+after);
+  }
+
+  @Test void taskSearchMatchesBeforeApplyingPageLimit() throws Exception {
+    var f = fixture();
+    var match = mkTask(f.actor(), f.project(), "Zulu Needle");
+    mkTask(f.actor(), f.project(), "Alpha");
+    var response = doGet("/api/v1/tasks?project_id=" + f.project()
+        + "&sort=title&order=asc&limit=1&q=needle", f.token());
+    assertEquals(200, response.getResponse().getStatus(), response.getResponse().getContentAsString());
+    var page = json(response).path("data");
+    assertEquals(1, page.path("total").asInt());
+    assertEquals(match.getId().toString(), page.path("items").get(0).path("id").asText());
   }
 }

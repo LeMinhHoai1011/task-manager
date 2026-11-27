@@ -29,15 +29,32 @@ if [ ! -f "$DB_DUMP" ]; then
 fi
 
 # Validate all inputs before stopping services or replacing any database rows.
-docker compose exec -T db pg_restore --list < "$DB_DUMP" >/dev/null
-MANIFEST="$(dirname "$DB_DUMP")/manifest-$(basename "$DB_DUMP" .dump | sed 's/^db-//').sha256"
+BACKUP_DIR=$(cd "$(dirname "$DB_DUMP")" && pwd -P)
+STAMP=$(basename "$DB_DUMP" .dump | sed 's/^db-//')
+MANIFEST="$BACKUP_DIR/manifest-$STAMP.sha256"
 if [ -f "$MANIFEST" ]; then
-  (cd "$(dirname "$MANIFEST")" && sha256sum -c "$(basename "$MANIFEST")")
+  for required in "db-$STAMP.dump" "minio-$STAMP.tgz" "files-$STAMP.tgz"; do
+    awk -v name="$required" '$2 == name || $2 == "*" name { found=1 } END { exit !found }' "$MANIFEST" ||
+      { echo "Missing checksum for $required" >&2; exit 2; }
+  done
+  if [ -z "$MINIO_TAR" ] || [ -z "$FILES_TAR" ] ||
+     [ ! "$DB_DUMP" -ef "$BACKUP_DIR/db-$STAMP.dump" ] ||
+     [ ! "$MINIO_TAR" -ef "$BACKUP_DIR/minio-$STAMP.tgz" ] ||
+     [ ! "$FILES_TAR" -ef "$BACKUP_DIR/files-$STAMP.tgz" ]; then
+    echo 'Pass the database, MinIO and local files from the same verified backup set.' >&2
+    exit 2
+  fi
+  (cd "$BACKUP_DIR" && sha256sum -c "$(basename "$MANIFEST")")
+elif [ -n "$MINIO_TAR$FILES_TAR" ]; then
+  echo 'A checksum manifest is required for a restore that includes storage.' >&2
+  exit 2
 fi
+docker compose exec -T db pg_restore --list < "$DB_DUMP" >/dev/null
 if [ -n "$FILES_TAR" ]; then
   [ -f "$FILES_TAR" ] || { echo 'Local files archive not found' >&2; exit 2; }
   gzip -t "$FILES_TAR"
-  if tar tzf "$FILES_TAR" | grep -Eq '(^/|(^|/)\.\.(/|$))'; then
+  FILES_ENTRIES=$(tar tzf "$FILES_TAR")
+  if printf '%s\n' "$FILES_ENTRIES" | grep -Eq '(^/|(^|/)\.\.(/|$))'; then
     echo 'Unsafe path in local files archive' >&2; exit 2
   fi
   BACKEND_CONTAINER=$(docker compose ps -aq backend)
@@ -48,7 +65,8 @@ fi
 if [ -n "$MINIO_TAR" ]; then
   [ -f "$MINIO_TAR" ] || { echo 'MinIO archive not found' >&2; exit 2; }
   gzip -t "$MINIO_TAR"
-  if tar tzf "$MINIO_TAR" | grep -Eq '(^/|(^|/)\.\.(/|$))'; then
+  MINIO_ENTRIES=$(tar tzf "$MINIO_TAR")
+  if printf '%s\n' "$MINIO_ENTRIES" | grep -Eq '(^/|(^|/)\.\.(/|$))'; then
     echo 'Unsafe path in MinIO archive' >&2
     exit 2
   fi

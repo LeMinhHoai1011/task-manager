@@ -23,3 +23,20 @@ test("checklist restores the original value on denial and blocks workflow while 
   await waitFor(()=>expect(checkbox).not.toBeChecked());expect(screen.getByRole("button",{name:"Workflow test action"})).toBeEnabled();
   await screen.findByText("Quyền đã thu hồi");
 });
+test("shows a failed checklist load and retries it", async () => {
+  let attempts = 0;
+  request.mockImplementation(async (path: string) => {
+    if (path === "/tasks/task1") return { data: { id: "task1", title: "Task", state: "TODO", version: 1 } };
+    if (path.endsWith("/access")) return { data: { execute: true } };
+    if (path.endsWith("/checklist")) {
+      if (++attempts === 1) throw new Error("Network unavailable");
+      return { data: [{ id: "item1", title: "Checklist reloaded", done: false }] };
+    }
+    return { data: [] };
+  });
+  render(<MemoryRouter initialEntries={["/tasks/task1"]}><Routes><Route path="/tasks/:id" element={<TaskDetail/>}/></Routes></MemoryRouter>);
+  const retry = await screen.findByRole("button", { name: "Thử lại" });
+  expect(screen.getByRole("alert")).toHaveTextContent("Không tải được");
+  fireEvent.click(retry);
+  expect(await screen.findByLabelText("Checklist reloaded")).toBeInTheDocument();
+});

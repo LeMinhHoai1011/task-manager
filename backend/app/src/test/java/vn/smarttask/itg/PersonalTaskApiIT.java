@@ -38,6 +38,59 @@ class PersonalTaskApiIT extends ItgBase {
   }
   @org.springframework.beans.factory.annotation.Autowired
   vn.smarttask.task.service.PersonalTaskCreationService creation;
+
+  @org.springframework.beans.factory.annotation.Autowired
+  vn.smarttask.task.service.PersonalTaskRecurrenceService recurrences;
+
+  @Test
+  void dashboardScopesDateOnlyWorkAndRecurringPeriodsStayIndependent() throws Exception {
+    var owner = activeUser("agenda", "Password123!");
+    var stranger = activeUser("agendaother", "Password123!");
+    String token = loginToken(owner.getUsername(), "Password123!");
+    String other = loginToken(stranger.getUsername(), "Password123!");
+    var source = creation.create(owner.getId(), "Daily agenda", idem());
+    var path = "/api/v1/me/tasks/" + source.getId();
+    var zone = java.time.ZoneId.of("Pacific/Kiritimati");
+    var today = java.time.LocalDate.now(zone);
+    var due = today.atStartOfDay(zone).toOffsetDateTime();
+    assertEquals(200, doPatch(path, token, Map.of("title", source.getTitle(), "priority", "HIGH",
+        "dueAt", due.toString(), "dueIsDateOnly", true, "dueTimezone", zone.getId()), Map.of("If-Match", "1"))
+        .getResponse().getStatus());
+    var agenda = "/api/v1/dashboard/today?bucket=today&timezone=Pacific/Kiritimati";
+    var own = json(doGet(agenda, token)).path("data").path("items");
+    assertEquals(1, own.size());
+    assertEquals(today.toString(), own.get(0).path("due_date_only").asText());
+    assertEquals(0, json(doGet(agenda, other)).path("data").path("items").size());
+
+    var recurrence = "/api/v1/me/task-recurrences/" + source.getId();
+    var put = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(recurrence)
+        .header("Authorization", "Bearer " + token).contentType("application/json")
+        .content("{\"intervalDays\":1,\"version\":2}");
+    assertEquals(200, mvc.perform(put).andReturn().getResponse().getStatus());
+    assertEquals(0, json(doGet(recurrence, other)).path("data").size());
+    jdbc.update("update personal_task_recurrence set run_at=now() where source_task_id=?", source.getId());
+    var executor = java.util.concurrent.Executors.newFixedThreadPool(2);
+    try {
+      var first = executor.submit(recurrences::generateDue);
+      var second = executor.submit(recurrences::generateDue);
+      first.get(20, java.util.concurrent.TimeUnit.SECONDS);
+      second.get(20, java.util.concurrent.TimeUnit.SECONDS);
+    } finally {
+      executor.shutdownNow();
+    }
+    var tasks = taskRepo.findByOwnerUserIdAndScopeAndDeletedAtIsNull(owner.getId(), "PERSONAL",
+        org.springframework.data.domain.PageRequest.of(0, 20)).getContent();
+    assertEquals(2, tasks.size());
+    var generated = tasks.stream().filter(task -> !task.getId().equals(source.getId())).findFirst().orElseThrow();
+    assertEquals(today.plusDays(1), generated.getDueAt().atZoneSameInstant(zone).toLocalDate());
+    assertEquals("HIGH", generated.getPriority());
+    assertEquals("TODO", generated.getState());
+    recurrences.stop(owner.getId(), source.getId());
+    jdbc.update("update personal_task_recurrence set run_at=now() where source_task_id=?", source.getId());
+    recurrences.generateDue();
+    assertEquals(2, taskRepo.findByOwnerUserIdAndScopeAndDeletedAtIsNull(owner.getId(), "PERSONAL",
+        org.springframework.data.domain.PageRequest.of(0, 20)).getTotalElements());
+  }
   @Test
   void concurrentRetriesCreateExactlyOneTask() throws Exception {
     var owner = activeUser("retry", "Password123!");

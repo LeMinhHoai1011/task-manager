@@ -11,6 +11,7 @@ import vn.smarttask.common.AppException;
 @Service
 public class TaskOverviewService {
   private final NamedParameterJdbcTemplate jdbc;
+  private static final String DATE_ONLY = "(t.due_at at time zone coalesce(nullif(t.due_timezone,''),'UTC'))::date";
   public TaskOverviewService(NamedParameterJdbcTemplate jdbc) { this.jdbc=jdbc; }
   private static final String VISIBLE = """
       t.deleted_at is null and (
@@ -64,6 +65,38 @@ public class TaskOverviewService {
     return result;
   }
   @Transactional(readOnly=true)
+  public List<Map<String,Object>> today(UUID actor, String timezone, String bucket, int page) {
+    ZoneId zone = zone(timezone);
+    var now = ZonedDateTime.now(zone);
+    var date = now.toLocalDate();
+    var params = new HashMap<String,Object>();
+    params.put("actor", actor);
+    params.put("now", now.toOffsetDateTime());
+    params.put("date", date);
+    params.put("tomorrow", date.plusDays(1).atStartOfDay(zone).toOffsetDateTime());
+    params.put("end", date.plusDays(8).atStartOfDay(zone).toOffsetDateTime());
+    params.put("endDate", date.plusDays(8));
+    params.put("offset", Math.max(0, page) * 20L);
+    String range = switch (bucket) {
+      case "overdue" -> DATE_ONLY + "<:date and t.due_is_date_only or not t.due_is_date_only and t.due_at<:now";
+      case "today" -> DATE_ONLY + "=:date and t.due_is_date_only or not t.due_is_date_only and t.due_at>=:now and t.due_at<:tomorrow";
+      case "upcoming" -> DATE_ONLY + ">:date and " + DATE_ONLY + "<:endDate and t.due_is_date_only"
+          + " or not t.due_is_date_only and t.due_at>=:tomorrow and t.due_at<:end";
+      default -> throw AppException.badRequest("INVALID_BUCKET", "Unknown task bucket");
+    };
+    return jdbc.queryForList("""
+        select t.id,t.title,t.state,t.scope,t.due_at,t.blocked_flag,p.name project_name,
+          case when t.due_is_date_only then cast(%s as text) end due_date_only,
+          case when t.scope='PROJECT' then case when a.is_primary then 'PRIMARY' else 'COLLABORATOR' end end responsibility
+        from task t left join project p on p.id=t.project_id
+        left join lateral (select bool_or(is_primary) is_primary, count(*) assigned from task_assignment
+          where task_id=t.id and user_id=:actor and status='ACTIVE') a on true
+        where %s and (t.scope='PERSONAL' or a.assigned>0)
+          and t.state not in ('COMPLETED','CANCELLED') and (%s)
+        order by t.due_at,t.id limit 21 offset :offset
+        """.formatted(DATE_ONLY, VISIBLE, range), params);
+  }
+  @Transactional(readOnly=true)
   public List<Map<String,Object>> calendar(UUID actor,String view,LocalDate anchor,String timezone) {
     return calendar(actor,view,anchor,timezone,"all",null,null,0,200);
   }
@@ -79,7 +112,7 @@ public class TaskOverviewService {
       default -> throw AppException.badRequest("CALENDAR_VIEW_UNKNOWN","Unknown view");
     }
     var f=scope(actor,selectedScope,project,team,null,null);
-    String localDate="(t.due_at at time zone coalesce(nullif(t.due_timezone,''),'UTC'))::date";
+    String localDate=DATE_ONLY;
     String range=" and t.due_at is null";
     if(start!=null){
       f.params().put("startDate",start);f.params().put("endDate",end);
