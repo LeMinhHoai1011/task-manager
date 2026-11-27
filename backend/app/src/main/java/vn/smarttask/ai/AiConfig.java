@@ -20,7 +20,7 @@ public class AiConfig {
   @Bean
   OllamaClient ollamaClient(
       @Value("${smarttask.ollama.base-url:http://localhost:11434}") String baseUrl,
-      @Value("${smarttask.ollama.model:llama3.1:8b}") String model,
+      @Value("${smarttask.ollama.model:qwen2.5:1.5b}") String model,
       @Value("${smarttask.ollama.connect-timeout-ms:5000}") long connectTimeoutMs,
       @Value("${smarttask.ollama.max-retries:1}") int maxRetries) {
     return new HttpOllamaClient(baseUrl, model, connectTimeoutMs, maxRetries);

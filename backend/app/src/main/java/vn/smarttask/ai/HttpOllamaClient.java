@@ -28,7 +28,7 @@ public class HttpOllamaClient implements OllamaClient {
 
   public HttpOllamaClient(String baseUrl, String model, long connectTimeoutMs, int maxRetries) {
     this.baseUrl = baseUrl == null ? "http://localhost:11434" : baseUrl;
-    this.model = model == null ? "llama3.1:8b" : model;
+    this.model = model == null ? "qwen2.5:1.5b" : model;
     this.connectTimeoutMs = Math.max(1000L, connectTimeoutMs);
     this.maxRetries = Math.max(0, Math.min(maxRetries, 3));
     this.http = HttpClient.newBuilder()

@@ -97,7 +97,7 @@ services:
       SMARTTASK_BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-}
       SMARTTASK_CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
       SMARTTASK_OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
-      SMARTTASK_OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1:8b}
+      SMARTTASK_OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:1.5b}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
