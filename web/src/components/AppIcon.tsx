@@ -53,6 +53,7 @@ const paths: Record<string, string> = {
   eye: "M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
   "external-link": "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6 M15 3h6v6 M10 14L21 3",
   "more-vertical": "M12 12h.01 M12 5h.01 M12 19h.01",
+  send: "M22 2L11 13 M22 2l-7 20-4-9-9-4z",
 };
 
 export default function AppIcon({

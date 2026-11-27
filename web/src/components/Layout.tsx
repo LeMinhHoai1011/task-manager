@@ -166,7 +166,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         {link("/notifications", t("nav.notifications"), "bell")}
         {link("/settings", "Cài đặt", "settings")}
         {link("/my-role", "Vai trò và việc cần làm", "roles")}
-        {ENABLE_AI && hasProjects && link("/ai", t("nav.ai"), "ai")}
+        {ENABLE_AI && link("/ai", t("nav.ai"), "ai")}
 
         <div className="mt-auto border-t border-slate-200 pt-3">
           <RealtimeIndicator />

@@ -1,22 +1,8 @@
-import { useEffect, useState } from "react";
-import { apiFetch, mutationOpts, newIdempotencyKey, unwrapData, unwrapList } from "../api/client";
-import { t } from "../i18n";
-import ResourcePicker from "../components/ResourcePicker";
-import {statusLabel} from "../i18n/labels";
-import { Button, Card, EmptyState, ErrorAlert, Select } from "../components/ui";
-
-// AI chỉ gợi ý, không bao giờ tự mutation: mọi thay đổi công việc đều qua nút
-// "Xác nhận áp dụng" rõ ràng (POST /ai/jobs/{id}/accept) sau khi user xem bản nháp.
-// Contract backend §AI: POST /ai/request {feature, projectId?, inputHint?, requestedFields?}.
-const FEATURES = [
-  "TASK_DRAFT",
-  "SUBTASK_SUGGEST",
-  "PRIORITY_SUGGEST",
-  "DEADLINE_SUGGEST",
-  "ASSIGNEE_SUGGEST",
-  "DAILY_PLANNER",
-  "WEEKLY_REVIEW",
-] as const;
+import { useEffect, useRef, useState } from "react";
+import { apiFetch, mutationOpts, newIdempotencyKey, unwrapData } from "../api/client";
+import { useAccess } from "../auth/AccessContext";
+import { statusLabel } from "../i18n/labels";
+import AppIcon from "../components/AppIcon";
 
 interface AiJob {
   id: string;
@@ -32,86 +18,62 @@ interface AiSuggestion {
   payload: string;
 }
 
+type ChatMsg =
+  | { role: "user"; text: string; feature: string; projectId?: string; ts: number }
+  | { role: "ai"; jobId: string; status: string; payload?: Record<string, unknown> | null; raw?: string; ts: number }
+  | { role: "system"; text: string; ts: number };
 
-function parsePayload(payload: string): Array<{ k: string; v: string }> | null {
+function parsePayload(payload: string): Record<string, unknown> | null {
   try {
     const o = JSON.parse(payload);
-    if (o && typeof o === "object" && !Array.isArray(o)) {
-      return Object.entries(o as Record<string, unknown>).map(([k, v]) => ({
-        k,
-        v: typeof v === "string" ? v : JSON.stringify(v),
-      }));
-    }
-    if (Array.isArray(o)) {
-      return o.map((v, i) => ({ k: `#${i + 1}`, v: typeof v === "string" ? v : JSON.stringify(v) }));
-    }
-    return null;
+    return o && typeof o === "object" && !Array.isArray(o) ? o : null;
   } catch {
     return null;
   }
 }
 
+const QUICK_ACTIONS = [
+  { feature: "TASK_DRAFT", hint: "Soạn công việc mới" },
+  { feature: "DAILY_PLANNER", hint: "Lên kế hoạch hôm nay" },
+  { feature: "WEEKLY_REVIEW", hint: "Tổng kết tuần này" },
+] as const;
+
 export default function Ai() {
-  const [feature, setFeature] = useState<string>("TASK_DRAFT");
-  const [inputHint, setInputHint] = useState("");
+  const access = useAccess();
+  const projects = access.projects;
+  const [messages, setMessages] = useState<ChatMsg[]>([]);
+  const [input, setInput] = useState("");
   const [projectId, setProjectId] = useState("");
-  const [job, setJob] = useState<AiJob | null>(null);
-  const [suggestion, setSuggestion] = useState<AiSuggestion | null>(null);
-  const [history, setHistory] = useState<AiJob[]>([]);
-  const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [confirmAccept, setConfirmAccept] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
-
-  async function loadHistory() {
-    try {
-      const r = await apiFetch("/ai/history");
-      const d = unwrapData<unknown>(r);
-      setHistory(Array.isArray(d) ? (d as AiJob[]) : unwrapList<AiJob>(r));
-    } catch {
-      setHistory([]);
-    }
-  }
+  const [pollingJobId, setPollingJobId] = useState<string | null>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    void loadHistory();
-  }, []);
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
-  async function refreshJob(id: string) {
-    try {
-      const r = await apiFetch(`/ai/jobs/${id}`);
-      const d = unwrapData<AiJob>(r);
-      if (d) setJob(d);
-    } catch (e: any) {
-      setErr(e?.uiMessage ?? t("error.generic"));
-    }
-    try {
-      const s = await apiFetch(`/ai/jobs/${id}/suggestion`);
-      const sd = unwrapData<AiSuggestion>(s);
-      if (sd) setSuggestion(sd);
-    } catch {
-      /* gợi ý chưa sẵn sàng — giữ trạng thái job, không báo lỗi chặn */
-    }
+  function detectFeature(text: string): string {
+    const lower = text.toLowerCase();
+    if (lower.includes("kế hoạch") || lower.includes("hôm nay") || lower.includes("lên lịch")) return "DAILY_PLANNER";
+    if (lower.includes("tổng kết") || lower.includes("tuần")) return "WEEKLY_REVIEW";
+    if (lower.includes("ưu tiên")) return "PRIORITY_SUGGEST";
+    if (lower.includes("deadline") || lower.includes("hạn") || lower.includes("thời hạn")) return "DEADLINE_SUGGEST";
+    if (lower.includes("ai làm") || lower.includes("giao cho") || lower.includes("phụ trách")) return "ASSIGNEE_SUGGEST";
+    if (lower.includes("chia nhỏ") || lower.includes("subtask") || lower.includes("việc con")) return "SUBTASK_SUGGEST";
+    return "TASK_DRAFT";
   }
 
-  // Auto-poll trạng thái job đang chạy (tối đa ~30s), dừng khi có gợi ý.
-  useEffect(() => {
-    if (!job || suggestion) return;
-    const terminal = ["SUCCEEDED", "COMPLETED", "DONE", "FAILED", "REJECTED", "ACCEPTED", "APPLIED"];
-    if (terminal.includes(String(job.status).toUpperCase())) return;
-    const timer = window.setInterval(() => void refreshJob(job.id), 3000);
-    return () => window.clearInterval(timer);
-  }, [job, suggestion]);
+  async function send(overrideFeature?: string, overrideHint?: string) {
+    const text = overrideHint ?? input.trim();
+    if (!text || busy) return;
 
-  async function request() {
-    setErr(null);
-    setNotice(null);
-    setSuggestion(null);
-    if (!feature) {
-      setErr(t("form.required"));
-      return;
-    }
+    const feature = overrideFeature ?? detectFeature(text);
+    const userMsg: ChatMsg = { role: "user", text, feature, projectId: projectId || undefined, ts: Date.now() };
+    setMessages((prev) => [...prev, userMsg]);
+    setInput("");
     setBusy(true);
+
     try {
       const r = await apiFetch("/ai/request", {
         ...mutationOpts({ idempotencyKey: newIdempotencyKey() }),
@@ -119,190 +81,281 @@ export default function Ai() {
         body: {
           feature,
           projectId: projectId.trim() || undefined,
-          inputHint: inputHint.trim() || undefined,
+          inputHint: text,
           idempotencyKey: newIdempotencyKey(),
         },
       });
-      const d = unwrapData<AiJob>(r);
-      if (!d || !d.id) throw new Error("empty job");
-      setJob(d);
-      void refreshJob(d.id);
-      void loadHistory();
+      const job = unwrapData<AiJob>(r);
+      if (!job?.id) throw new Error("empty job");
+
+      setMessages((prev) => [
+        ...prev,
+        { role: "ai", jobId: job.id, status: job.status, ts: Date.now() },
+      ]);
+      setPollingJobId(job.id);
     } catch (e: any) {
-      setErr(e?.uiMessage ?? t("error.generic"));
+      setMessages((prev) => [
+        ...prev,
+        { role: "system", text: e?.uiMessage ?? "Không gửi được yêu cầu. Hãy thử lại.", ts: Date.now() },
+      ]);
     } finally {
       setBusy(false);
     }
   }
 
-  async function accept() {
-    if (!job) return;
-    setErr(null);
+  useEffect(() => {
+    if (!pollingJobId) return;
+    let active = true;
+    const poll = async () => {
+      try {
+        const jr = await apiFetch(`/ai/jobs/${pollingJobId}`);
+        const job = unwrapData<AiJob>(jr);
+        if (!active || !job) return;
+
+        const terminal = ["COMPLETED", "FAILED_TIMEOUT", "FAILED_OLLAMA", "FAILED_VALIDATION", "CANCELLED_REVOKED"];
+        if (terminal.includes(job.status)) {
+          setPollingJobId(null);
+          try {
+            const sr = await apiFetch(`/ai/jobs/${pollingJobId}/suggestion`);
+            const sug = unwrapData<AiSuggestion>(sr);
+            if (sug && active) {
+              const parsed = parsePayload(sug.payload);
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.role === "ai" && m.jobId === pollingJobId
+                    ? { ...m, status: job.status, payload: parsed, raw: parsed ? undefined : sug.payload }
+                    : m
+                )
+              );
+              return;
+            }
+          } catch {}
+          if (active) {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.role === "ai" && m.jobId === pollingJobId ? { ...m, status: job.status } : m
+              )
+            );
+          }
+        }
+      } catch {}
+    };
+    const timer = setInterval(poll, 2500);
+    void poll();
+    return () => { active = false; clearInterval(timer); };
+  }, [pollingJobId]);
+
+  async function acceptJob(jobId: string) {
     try {
-      await apiFetch(`/ai/jobs/${job.id}/accept`, {
+      await apiFetch(`/ai/jobs/${jobId}/accept`, {
         ...mutationOpts({ idempotencyKey: newIdempotencyKey() }),
         method: "POST",
         body: {},
       });
-      setConfirmAccept(false);
-      setNotice(t("ai.accepted"));
-      void refreshJob(job.id);
-      void loadHistory();
+      setMessages((prev) => [
+        ...prev,
+        { role: "system", text: "Đã tạo công việc từ gợi ý AI.", ts: Date.now() },
+      ]);
     } catch (e: any) {
-      setErr(e?.uiMessage ?? t("error.generic"));
-      setConfirmAccept(false);
+      setMessages((prev) => [
+        ...prev,
+        { role: "system", text: e?.uiMessage ?? "Không thể áp dụng gợi ý.", ts: Date.now() },
+      ]);
     }
   }
 
-  async function reject() {
-    if (!job) return;
-    setErr(null);
+  async function rejectJob(jobId: string) {
     try {
-      await apiFetch(`/ai/jobs/${job.id}/reject`, {
+      await apiFetch(`/ai/jobs/${jobId}/reject`, {
         ...mutationOpts({ idempotencyKey: newIdempotencyKey() }),
         method: "POST",
         body: {},
       });
-      setNotice(t("admin.done"));
-      void refreshJob(job.id);
-      void loadHistory();
-    } catch (e: any) {
-      setErr(e?.uiMessage ?? t("error.generic"));
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.role === "ai" && m.jobId === jobId ? { ...m, status: "REJECTED" } : m
+        )
+      );
+    } catch {}
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      void send();
     }
   }
 
-  async function retry() {
-    if (!job) return;
-    setErr(null);
-    try {
-      const r = await apiFetch(`/ai/jobs/${job.id}/retry`, {
-        ...mutationOpts({ idempotencyKey: newIdempotencyKey() }),
-        method: "POST",
-        body: {},
-      });
-      const d = unwrapData<AiJob>(r);
-      if (d) setJob(d);
-      setSuggestion(null);
-      void loadHistory();
-    } catch (e: any) {
-      setErr(e?.uiMessage ?? t("error.generic"));
-    }
-  }
-
-  const parsed = suggestion ? parsePayload(suggestion.payload) : null;
+  const isTerminal = (s: string) =>
+    ["COMPLETED", "REJECTED", "ACCEPTED", "APPLIED", "FAILED_TIMEOUT", "FAILED_OLLAMA", "FAILED_VALIDATION", "CANCELLED_REVOKED"].includes(s);
 
   return (
-    <div className="mx-auto max-w-6xl">
-      <h1 className="page-title">{t("ai.title")}</h1>
-      <p className="page-subtitle">{t("ai.desc")}</p>
-      <ErrorAlert message={err} />
-      {notice && <p role="status" className="mt-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">{notice}</p>}
-      <div className="mt-3 grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]"><Card>
-        <div className="flex flex-wrap items-end gap-2">
-          <label className="block">
-            <span className="label">{t("ai.feature")}</span>
-            <Select aria-label={t("ai.feature")} value={feature} onChange={(e) => setFeature(e.target.value)}>
-              {FEATURES.map((f) => (
-                <option key={f} value={f}>{statusLabel(f)}</option>
-              ))}
-            </Select>
-          </label>
-          <label className="block">
-            <span className="label">{t("ai.project_id")}</span>
-            <ResourcePicker kind="projects" label="Dự án (không bắt buộc)" placeholder="Không gắn dự án" value={projectId} onChange={setProjectId}/>
-          </label>
+    <div className="mx-auto max-w-3xl flex flex-col h-[calc(100vh-5rem)]">
+      {/* Header */}
+      <div className="flex items-center gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
+        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+          <AppIcon name="ai" size={20} className="text-white" />
         </div>
-        <label className="mt-2 block">
-          <span className="label">{t("ai.input_hint")}</span>
-          <textarea
-            aria-label={t("ai.input_hint")}
-            className="input min-h-20"
-            value={inputHint}
-            onChange={(e) => setInputHint(e.target.value)}
-          />
-        </label>
-        <div className="row">
-          <Button variant="primary" size="sm" disabled={busy} onClick={() => void request()}>
-            {busy ? t("ai.loading") : t("ai.request")}
-          </Button>
+        <div>
+          <h1 className="text-lg font-bold text-slate-900 dark:text-white">Trợ lý AI</h1>
+          <p className="text-xs text-slate-500">Mô tả công việc bằng ngôn ngữ tự nhiên — AI soạn nháp, bạn xác nhận.</p>
         </div>
-      </Card>
-      {job && (
-        <Card className="mt-3">
-          <h2 className="text-sm font-semibold text-slate-900">{t("ai.job_status")}</h2>
-          <table className="table mt-2">
-            <thead><tr><th>{t("common.id")}</th><th>{t("ai.feature")}</th><th>{t("common.status")}</th><th>{t("common.actions")}</th></tr></thead>
-            <tbody>
-              <tr>
-                <td className="font-mono text-xs">{job.id}</td>
-                <td>{statusLabel(job.feature)}</td>
-                <td>{statusLabel(job.status)}</td>
-                <td>
-                  <div className="flex flex-wrap gap-2">
-                    <Button variant="secondary" size="sm" onClick={() => void refreshJob(job.id)}>{t("common.refresh")}</Button>
-                    <Button variant="secondary" size="sm" onClick={() => void retry()}>{t("ai.retry")}</Button>
-                    <Button variant="danger" size="sm" onClick={() => void reject()}>{t("ai.reject")}</Button>
-                    <Button variant="success" size="sm" onClick={() => setConfirmAccept(true)}>{t("ai.accept")}</Button>
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </Card>
-      )}
-      <Card>
-        <h2 className="text-sm font-semibold text-slate-900">{t("ai.suggestion")}</h2>
-        {!suggestion ? (
-          <div className="mt-2"><EmptyState title={t("ai.no_suggestion")} /></div>
-        ) : parsed ? (
-          <table className="table mt-2">
-            <tbody>
-              {parsed.map((row) => (
-                <tr key={statusLabel(row.k)}>
-                  <td className="w-40 font-medium text-slate-700">{statusLabel(row.k)}</td>
-                  <td className="whitespace-pre-wrap">{row.v}</td>
-                </tr>
+      </div>
+
+      {/* Chat messages */}
+      <div className="flex-1 overflow-y-auto py-4 space-y-4">
+        {messages.length === 0 && (
+          <div className="text-center pt-12 space-y-6">
+            <div className="w-16 h-16 mx-auto rounded-full bg-gradient-to-br from-blue-100 to-purple-100 dark:from-blue-900/30 dark:to-purple-900/30 flex items-center justify-center">
+              <AppIcon name="ai" size={32} className="text-blue-500" />
+            </div>
+            <div>
+              <p className="text-base font-semibold text-slate-700 dark:text-slate-300">Xin chào! Tôi có thể giúp gì?</p>
+              <p className="text-sm text-slate-500 mt-1">Mô tả công việc bạn cần làm, tôi sẽ soạn nháp cho bạn xem và duyệt.</p>
+            </div>
+            <div className="flex flex-wrap justify-center gap-2">
+              {QUICK_ACTIONS.map((qa) => (
+                <button
+                  key={qa.feature}
+                  onClick={() => void send(qa.feature, qa.hint)}
+                  className="px-4 py-2 rounded-full border border-slate-200 dark:border-slate-700 text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                >
+                  {qa.hint}
+                </button>
               ))}
-            </tbody>
-          </table>
-        ) : (
-          <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{suggestion.payload}</p>
-        )}
-      </Card></div>
-      {confirmAccept && (
-        <div role="dialog" aria-modal="true" aria-label={t("ai.accept")} className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-lg">
-            <p className="text-sm text-slate-800">{t("ai.accept_confirm")}</p>
-            <div className="mt-4 flex justify-end gap-2">
-              <Button variant="success" size="sm" onClick={() => void accept()}>{t("common.confirm")}</Button>
-              <Button variant="secondary" size="sm" onClick={() => setConfirmAccept(false)}>{t("common.cancel")}</Button>
             </div>
           </div>
-        </div>
-      )}
-      <Card className="mt-3">
-        <h2 className="text-sm font-semibold text-slate-900">{t("ai.history")}</h2>
-        {history.length === 0 ? (
-          <p className="mt-2 text-sm text-slate-400">—</p>
-        ) : (
-          <table className="table mt-2">
-            <thead><tr><th>{t("common.id")}</th><th>{t("ai.feature")}</th><th>{t("common.status")}</th></tr></thead>
-            <tbody>
-              {history.map((h) => (
-                <tr key={h.id}>
-                  <td>
-                    <button className="font-mono text-xs text-primary hover:underline" onClick={() => { setJob(h); setSuggestion(null); void refreshJob(h.id); }}>
-                      {h.id}
-                    </button>
-                  </td>
-                  <td>{statusLabel(h.feature)}</td>
-                  <td>{statusLabel(h.status)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
         )}
-      </Card>
+
+        {messages.map((msg, i) => {
+          if (msg.role === "user") {
+            return (
+              <div key={i} className="flex justify-end">
+                <div className="max-w-[80%] rounded-2xl rounded-br-md bg-blue-600 text-white px-4 py-3">
+                  <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
+                  <p className="text-[10px] text-blue-200 mt-1">{statusLabel(msg.feature)}{msg.projectId ? " · Dự án" : " · Cá nhân"}</p>
+                </div>
+              </div>
+            );
+          }
+
+          if (msg.role === "system") {
+            return (
+              <div key={i} className="flex justify-center">
+                <p className="text-xs text-slate-500 bg-slate-100 dark:bg-slate-800 rounded-full px-4 py-1.5">{msg.text}</p>
+              </div>
+            );
+          }
+
+          // AI message
+          const done = isTerminal(msg.status);
+          const failed = msg.status.startsWith("FAILED") || msg.status === "CANCELLED_REVOKED";
+          const accepted = msg.status === "ACCEPTED" || msg.status === "APPLIED";
+          const rejected = msg.status === "REJECTED";
+
+          return (
+            <div key={i} className="flex justify-start">
+              <div className="max-w-[85%]">
+                <div className="rounded-2xl rounded-bl-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-4 py-3 shadow-sm">
+                  {!done && !msg.payload && (
+                    <div className="flex items-center gap-2 text-sm text-slate-500">
+                      <span className="h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
+                      Đang xử lý...
+                    </div>
+                  )}
+
+                  {failed && (
+                    <p className="text-sm text-red-600">Không thể tạo gợi ý. Hãy thử lại với mô tả khác.</p>
+                  )}
+
+                  {msg.payload && (
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Gợi ý từ AI</p>
+                      <div className="space-y-1.5">
+                        {Object.entries(msg.payload).map(([k, v]) => (
+                          <div key={k} className="flex gap-2 text-sm">
+                            <span className="font-medium text-slate-600 dark:text-slate-400 min-w-[100px]">{statusLabel(k)}:</span>
+                            <span className="text-slate-800 dark:text-slate-200 whitespace-pre-wrap">{typeof v === "string" ? v : JSON.stringify(v)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {msg.raw && !msg.payload && done && !failed && (
+                    <p className="text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap">{msg.raw}</p>
+                  )}
+
+                  {accepted && <p className="text-xs text-green-600 font-semibold mt-2">Đã áp dụng</p>}
+                  {rejected && <p className="text-xs text-slate-400 mt-2">Đã bỏ qua</p>}
+
+                  {/* Action buttons */}
+                  {done && !failed && !accepted && !rejected && (msg.payload || msg.raw) && (
+                    <div className="flex gap-2 mt-3 pt-3 border-t border-slate-100 dark:border-slate-700">
+                      <button
+                        onClick={() => void acceptJob(msg.jobId)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-600 text-white text-xs font-semibold hover:bg-green-700 transition"
+                      >
+                        <AppIcon name="check" size={14} /> Chấp nhận & tạo
+                      </button>
+                      <button
+                        onClick={() => void rejectJob(msg.jobId)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                      >
+                        Bỏ qua
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+        <div ref={bottomRef} />
+      </div>
+
+      {/* Input bar */}
+      <div className="border-t border-slate-200 dark:border-slate-800 pt-3 pb-2 space-y-2">
+        {/* Project selector */}
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-slate-500">Tạo cho:</span>
+          <select
+            value={projectId}
+            onChange={(e) => setProjectId(e.target.value)}
+            className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 py-1 text-xs text-slate-700 dark:text-slate-300"
+          >
+            <option value="">Công việc cá nhân</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex items-end gap-2">
+          <textarea
+            ref={inputRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Mô tả công việc cần làm... (Enter để gửi, Shift+Enter xuống dòng)"
+            rows={1}
+            className="flex-1 resize-none rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-3 text-sm text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+            style={{ minHeight: "44px", maxHeight: "120px" }}
+            onInput={(e) => {
+              const el = e.currentTarget;
+              el.style.height = "44px";
+              el.style.height = Math.min(el.scrollHeight, 120) + "px";
+            }}
+          />
+          <button
+            disabled={busy || !input.trim()}
+            onClick={() => void send()}
+            className="shrink-0 w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center hover:bg-blue-700 disabled:opacity-40 transition"
+          >
+            <AppIcon name="send" size={18} />
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
